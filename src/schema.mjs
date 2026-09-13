@@ -28,6 +28,14 @@ export function parseStoryFile(raw) {
 }
 
 export function loadStoryFile(filePath) {
-  const raw = readFileSync(filePath, "utf8");
+  let raw;
+  try {
+    raw = readFileSync(filePath, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      throw new Error(`No story file at ${filePath} - run \`prstory init\` to create one.`);
+    }
+    throw err;
+  }
   return parseStoryFile(raw);
 }

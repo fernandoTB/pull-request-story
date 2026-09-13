@@ -1,0 +1,4 @@
+# Where prstory keeps its story file(s) for this repo - see docs/FORMAT.md.
+version: 1
+mode: multi-file
+storiesDir: .pr-story

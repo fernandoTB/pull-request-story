@@ -77,6 +77,13 @@ export async function getRemoteOwnerRepo(repoRoot, remoteName = "origin") {
   }
 }
 
+/** Current branch name, or null in detached HEAD (e.g. some CI checkouts) -
+ * used to find a branch's own story file in multi-file mode. */
+export async function getCurrentBranch(repoRoot) {
+  const out = (await git(repoRoot, ["branch", "--show-current"])).trim();
+  return out || null;
+}
+
 export async function detectDefaultBase(repoRoot) {
   try {
     const out = await git(repoRoot, [
