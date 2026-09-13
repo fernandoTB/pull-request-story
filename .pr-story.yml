@@ -185,3 +185,44 @@ steps:
       - type: diff
         ref: skills/pr-story/SKILL.md#L1-L4
         caption: "The frontmatter description - this is what triggers the skill."
+
+  - name: "Post line/range comments straight to a real GitHub PR"
+    description: |
+      Reading the story is only half of reviewing it - the other half is
+      leaving feedback. Rather than build our own comment storage, we
+      anchor comments to the real thing: an optional `github: { pr }` in
+      the story lets a reviewer select a line or range right in the diff
+      and post it via GitHub's own review-comment API, immediately visible
+      on the actual PR. The one hard requirement going in was no new token
+      to create - it had to reuse whatever GitHub auth the machine already
+      has, the way `gh` itself does.
+    files:
+      - src/github-auth.mjs
+      - src/github-api.mjs
+      - src/cli.mjs
+      - web/src/components/DiffBlock.jsx
+    story:
+      - type: text
+        content: |
+          Token resolution tries `gh auth token` first, then git's own
+          credential store (which also picks up `gh`'s git credential
+          helper), then the standard env vars - never a prompt.
+      - type: diff
+        ref: src/github-auth.mjs#L1-L16
+        caption: "First rung of the auth ladder: ask the GitHub CLI."
+      - type: text
+        content: |
+          Commenting is opt-in and self-explaining: no `github.pr`, no
+          remote, or no token found each disable the feature with a
+          specific reason surfaced straight to the UI, not a crash.
+      - type: diff
+        ref: src/cli.mjs#L90-L110
+        caption: "Every way commenting can be unavailable, and why."
+      - type: text
+        content: |
+          On the frontend, a click selects a line and shift-click extends
+          a range - constrained to one side (LEFT/RIGHT) at a time, since
+          that's what GitHub's own multi-line comment API expects.
+      - type: diff
+        ref: web/src/components/DiffBlock.jsx#L116-L129
+        caption: "Selecting a same-side range by clicking line rows."
