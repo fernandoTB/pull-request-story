@@ -155,6 +155,13 @@ step needed.
   everything else still works.
 - The comment is posted using whatever account those credentials belong to
   - same as if that person had commented in the GitHub UI themselves.
+- **Existing comments show up too**, not just new ones: `prstory tell`
+  fetches every review comment already on the PR and renders each inline,
+  right under the line it's anchored to - so a comment you post is visible
+  immediately in the same place, and stays visible (it's not a transient
+  "posted!" toast; it's the same list a page reload re-fetches from
+  GitHub). A comment whose surrounding code has since changed is still
+  shown, tagged "outdated", anchored to where it originally was.
 
 ## Using the CLI
 

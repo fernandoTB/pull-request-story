@@ -10,6 +10,33 @@ function lineNumberOf(line) {
   return line.type === "del" ? line.oldLine : line.newLine;
 }
 
+function CommentThread({ comments }) {
+  return (
+    <tr className="comment-thread-row">
+      <td colSpan={4}>
+        <div className="comment-thread">
+          {comments.map((c) => (
+            <div className={`comment-thread-item${c.outdated ? " outdated" : ""}`} key={c.id}>
+              <div className="comment-thread-meta">
+                <span className="comment-thread-author">{c.user}</span>
+                {c.outdated && (
+                  <span className="comment-thread-tag" title="The code around this comment has changed since it was posted">
+                    outdated
+                  </span>
+                )}
+              </div>
+              <div className="comment-thread-body">{c.body}</div>
+              <a className="comment-thread-link" href={c.htmlUrl} target="_blank" rel="noreferrer">
+                View on GitHub
+              </a>
+            </div>
+          ))}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function CommentComposer({ onSubmit, onCancel }) {
   const [body, setBody] = useState("");
   const [posting, setPosting] = useState(false);
@@ -63,30 +90,18 @@ function CommentComposer({ onSubmit, onCancel }) {
   );
 }
 
-function CommentPosted({ url, onDismiss }) {
-  return (
-    <tr className="comment-composer-row">
-      <td colSpan={4}>
-        <div className="comment-posted">
-          Comment posted.{" "}
-          <a href={url} target="_blank" rel="noreferrer">
-            View on GitHub
-          </a>
-          <button type="button" className="comment-dismiss-btn" onClick={onDismiss}>
-            Dismiss
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus }) {
+export default function DiffBlock({
+  item,
+  isViewed,
+  onToggleViewed,
+  githubStatus,
+  comments,
+  onCommentPosted,
+}) {
   const { path, range, caption, kind, file, hunks } = item;
   const [collapsed, setCollapsed] = useState(false);
   const [selection, setSelection] = useState(null); // { anchor, start, end }
   const [dragging, setDragging] = useState(false);
-  const [postedUrl, setPostedUrl] = useState(null);
 
   // Marking a diff viewed collapses it, mirroring GitHub's "Viewed"
   // checkbox; un-checking it does not force it back open.
@@ -133,7 +148,6 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
   function handleMouseDown(flatIndex, e) {
     if (!canComment) return;
     e.preventDefault(); // avoid native text selection while dragging
-    setPostedUrl(null);
     if (e.shiftKey && selection) {
       extendSelection(selection.anchor, flatIndex);
       return;
@@ -176,7 +190,11 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to post comment.");
-    setPostedUrl(data.url);
+    // The composer collapses into the newly posted comment itself (added
+    // to the shared, persistent comments list) - same as GitHub's own UI,
+    // and unlike a transient "posted!" toast, it's still there later.
+    onCommentPosted(data);
+    setSelection(null);
   }
 
   return (
@@ -249,6 +267,14 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
                   ]
                     .filter(Boolean)
                     .join(" ");
+                  const lineComments = (comments ?? [])
+                    .filter(
+                      (c) =>
+                        c.path === path &&
+                        c.line === lineNumberOf(line) &&
+                        c.side === sideOf(line)
+                    )
+                    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
                   return (
                     <React.Fragment key={i}>
                       <tr
@@ -261,19 +287,11 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
                         <td className="diff-line-marker">{MARKERS[line.type] ?? " "}</td>
                         <td className="diff-line-content">{line.content}</td>
                       </tr>
-                      {isSelected && flatIndex === selection.end && !dragging && !postedUrl && (
+                      {lineComments.length > 0 && <CommentThread comments={lineComments} />}
+                      {isSelected && flatIndex === selection.end && !dragging && (
                         <CommentComposer
                           onSubmit={submitComment}
                           onCancel={() => setSelection(null)}
-                        />
-                      )}
-                      {isSelected && flatIndex === selection.end && !dragging && postedUrl && (
-                        <CommentPosted
-                          url={postedUrl}
-                          onDismiss={() => {
-                            setPostedUrl(null);
-                            setSelection(null);
-                          }}
                         />
                       )}
                     </React.Fragment>

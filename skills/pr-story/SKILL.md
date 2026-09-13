@@ -72,6 +72,7 @@ implementation itself is done:
   time the story is opened.
 - Optional `github: { pr: <number> }` turns on posting comments straight to
   that real PR from the UI, anchored to the exact line/range a reviewer
-  selects - no token setup, it reuses `gh auth token`/git credentials/env
-  vars already on the machine. Add this once you know the PR number (e.g.
+  selects, and shows every comment already on the PR inline too - no token
+  setup, it reuses `gh auth token`/git credentials/env vars already on the
+  machine. Add this once you know the PR number (e.g.
   after opening it), not required for the story to work.

@@ -442,11 +442,15 @@ body {
   padding: 0 12px 0 4px;
 }
 
-.diff-table-commentable tbody tr:not(.diff-hunk-header):not(.comment-composer-row) {
+.diff-table-commentable
+  tbody
+  tr:not(.diff-hunk-header):not(.comment-composer-row):not(.comment-thread-row) {
   cursor: pointer;
 }
 
-.diff-table-commentable tbody tr:not(.diff-hunk-header):not(.comment-composer-row):hover {
+.diff-table-commentable
+  tbody
+  tr:not(.diff-hunk-header):not(.comment-composer-row):not(.comment-thread-row):hover {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -514,24 +518,62 @@ body {
   cursor: default;
 }
 
-.comment-posted {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--done-text);
+.comment-thread-row td {
+  padding: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  cursor: default;
 }
 
-.comment-dismiss-btn {
-  margin-left: auto;
-  font: inherit;
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: none;
+.comment-thread {
+  display: flex;
+  flex-direction: column;
+}
+
+.comment-thread-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.comment-thread-item:last-child {
+  border-bottom: none;
+}
+
+.comment-thread-item.outdated {
+  opacity: 0.7;
+}
+
+.comment-thread-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.comment-thread-author {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.comment-thread-tag {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   color: var(--text-muted);
-  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.comment-thread-body {
+  font-size: 13px;
+  white-space: pre-wrap;
+  margin-bottom: 4px;
+}
+
+.comment-thread-link {
+  font-size: 11.5px;
 }
 
 .empty-diff {

@@ -37252,8 +37252,9 @@ import { existsSync } from "node:fs";
 
 // src/github-api.mjs
 var API_BASE = process.env.PRSTORY_GITHUB_API_BASE || "https://api.github.com";
-async function ghFetch(token, path3, options = {}) {
-  const res = await fetch(`${API_BASE}${path3}`, {
+async function ghFetch(token, pathOrUrl, options = {}) {
+  const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${API_BASE}${pathOrUrl}`;
+  const res = await fetch(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -37268,24 +37269,60 @@ async function ghFetch(token, path3, options = {}) {
   if (!res.ok) {
     const message = data?.message || res.statusText;
     throw new Error(
-      `GitHub API ${options.method ?? "GET"} ${path3} failed (${res.status}): ${message}`
+      `GitHub API ${options.method ?? "GET"} ${pathOrUrl} failed (${res.status}): ${message}`
     );
   }
+  return { data, link: res.headers.get("link") };
+}
+async function getPullRequest(token, owner, repo, pr) {
+  const { data } = await ghFetch(token, `/repos/${owner}/${repo}/pulls/${pr}`);
   return data;
 }
-function getPullRequest(token, owner, repo, pr) {
-  return ghFetch(token, `/repos/${owner}/${repo}/pulls/${pr}`);
-}
-function createReviewComment(token, owner, repo, pr, payload) {
-  return ghFetch(token, `/repos/${owner}/${repo}/pulls/${pr}/comments`, {
+async function createReviewComment(token, owner, repo, pr, payload) {
+  const { data } = await ghFetch(token, `/repos/${owner}/${repo}/pulls/${pr}/comments`, {
     method: "POST",
     body: JSON.stringify(payload)
   });
+  return data;
+}
+function nextPageUrl(linkHeader) {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    const m = part.match(/<([^>]+)>;\s*rel="next"/);
+    if (m) return m[1];
+  }
+  return null;
+}
+async function listReviewComments(token, owner, repo, pr) {
+  let comments = [];
+  let url = `/repos/${owner}/${repo}/pulls/${pr}/comments?per_page=100`;
+  while (url) {
+    const { data, link } = await ghFetch(token, url);
+    comments = comments.concat(data);
+    url = nextPageUrl(link);
+  }
+  return comments;
 }
 
 // src/server.mjs
 var __dirname = path.dirname(fileURLToPath(import.meta.url));
 var DIST_DIR = path.join(__dirname, "..", "web", "dist");
+function normalizeComment(c) {
+  return {
+    id: c.id,
+    inReplyToId: c.in_reply_to_id ?? null,
+    path: c.path,
+    line: c.line ?? c.original_line ?? null,
+    side: c.side,
+    startLine: c.start_line ?? c.original_start_line ?? null,
+    startSide: c.start_side ?? null,
+    outdated: c.line == null,
+    body: c.body,
+    user: c.user?.login ?? "unknown",
+    htmlUrl: c.html_url,
+    createdAt: c.created_at
+  };
+}
 async function startServer({ resolved, reload, port = 4173, github = null }) {
   const app = (0, import_express.default)();
   app.use(import_express.default.json());
@@ -37307,6 +37344,20 @@ async function startServer({ resolved, reload, port = 4173, github = null }) {
     }
     const { token, ...status } = github;
     res.json(status);
+  });
+  app.get("/api/comments", async (_req, res) => {
+    if (!github?.enabled) return res.json([]);
+    try {
+      const comments = await listReviewComments(
+        github.token,
+        github.owner,
+        github.repo,
+        github.pr
+      );
+      res.json(comments.map(normalizeComment));
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
   });
   app.post("/api/comment", async (req, res) => {
     if (!github?.enabled) {
@@ -37330,7 +37381,7 @@ async function startServer({ resolved, reload, port = 4173, github = null }) {
         github.pr,
         payload
       );
-      res.json({ url: comment.html_url, id: comment.id });
+      res.json(normalizeComment(comment));
     } catch (err) {
       res.status(502).json({ error: err.message });
     }

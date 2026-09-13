@@ -31,7 +31,8 @@ Add `github: { pr: <number> }` to the story and reviewers can select a
 line/range right in the UI and post a comment that lands on that exact spot
 on the real GitHub pull request — no new token to create, it reuses
 whatever GitHub credentials are already on the machine (`gh auth token`,
-git's credential store, or `GH_TOKEN`/`GITHUB_TOKEN`).
+git's credential store, or `GH_TOKEN`/`GITHUB_TOKEN`). Every comment
+already on the PR shows up inline too, so it's not just write-only.
 
 ## Install
 
@@ -94,8 +95,9 @@ node bin/prstory tell
   `init` (scaffold a starter file).
 - **`src/github-auth.mjs` / `src/github-api.mjs`** — resolve a GitHub token
   from whatever the machine already has (`gh auth token`, git's credential
-  store, then `GH_TOKEN`/`GITHUB_TOKEN`) and post a line/range comment to a
-  real PR via GitHub's own review-comment API. The token never reaches the
+  store, then `GH_TOKEN`/`GITHUB_TOKEN`), post a line/range comment to a
+  real PR, and fetch every existing comment on it, via GitHub's own
+  review-comment API. The token never reaches the
   browser - only the local Express server holds it.
 - **`web/`** — a React/Vite app: a stepper down the left tracks review
   progress per step (persisted in `localStorage`), and the main panel

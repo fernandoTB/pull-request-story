@@ -2,10 +2,32 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { getPullRequest, createReviewComment } from "./github-api.mjs";
+import { getPullRequest, createReviewComment, listReviewComments } from "./github-api.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "web", "dist");
+
+/** Normalize a raw GitHub review comment into the shape the UI matches
+ * against resolved diff lines. `line`/`start_line` are null once the
+ * surrounding code has changed since the comment was posted - fall back to
+ * `original_line`/`original_start_line` so the comment still shows up
+ * (roughly in place) instead of disappearing, flagged as outdated. */
+function normalizeComment(c) {
+  return {
+    id: c.id,
+    inReplyToId: c.in_reply_to_id ?? null,
+    path: c.path,
+    line: c.line ?? c.original_line ?? null,
+    side: c.side,
+    startLine: c.start_line ?? c.original_start_line ?? null,
+    startSide: c.start_side ?? null,
+    outdated: c.line == null,
+    body: c.body,
+    user: c.user?.login ?? "unknown",
+    htmlUrl: c.html_url,
+    createdAt: c.created_at,
+  };
+}
 
 export async function startServer({ resolved, reload, port = 4173, github = null }) {
   const app = express();
@@ -34,6 +56,21 @@ export async function startServer({ resolved, reload, port = 4173, github = null
     res.json(status);
   });
 
+  app.get("/api/comments", async (_req, res) => {
+    if (!github?.enabled) return res.json([]);
+    try {
+      const comments = await listReviewComments(
+        github.token,
+        github.owner,
+        github.repo,
+        github.pr
+      );
+      res.json(comments.map(normalizeComment));
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+  });
+
   app.post("/api/comment", async (req, res) => {
     if (!github?.enabled) {
       return res
@@ -58,7 +95,7 @@ export async function startServer({ resolved, reload, port = 4173, github = null
         github.pr,
         payload
       );
-      res.json({ url: comment.html_url, id: comment.id });
+      res.json(normalizeComment(comment));
     } catch (err) {
       res.status(502).json({ error: err.message });
     }

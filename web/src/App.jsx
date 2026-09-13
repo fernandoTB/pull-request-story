@@ -50,6 +50,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [githubStatus, setGithubStatus] = useState(null);
+  const [comments, setComments] = useState([]);
   const layoutRef = useRef(null);
 
   const fetchStory = useCallback(() => {
@@ -75,6 +76,17 @@ export default function App() {
       .then((r) => r.json())
       .then(setGithubStatus)
       .catch(() => setGithubStatus({ enabled: false, reason: "failed to load status" }));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/comments")
+      .then((r) => r.json())
+      .then((data) => setComments(Array.isArray(data) ? data : []))
+      .catch(() => setComments([]));
+  }, []);
+
+  const addComment = useCallback((comment) => {
+    setComments((prev) => [...prev, comment]);
   }, []);
 
   useEffect(() => {
@@ -208,6 +220,8 @@ export default function App() {
           viewedDiffs={viewedDiffs}
           onToggleDiffViewed={toggleDiffViewed}
           githubStatus={githubStatus}
+          comments={comments}
+          onCommentPosted={addComment}
           onPrev={() => setActiveIndex((i) => Math.max(i - 1, 0))}
           onNext={() =>
             setActiveIndex((i) => Math.min(i + 1, story.steps.length - 1))
