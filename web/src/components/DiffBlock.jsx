@@ -10,27 +10,63 @@ function lineNumberOf(line) {
   return line.type === "del" ? line.oldLine : line.newLine;
 }
 
-function CommentThread({ comments }) {
+function CommentIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      className="comment-thread-icon"
+    >
+      <path d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v6A1.5 1.5 0 0 1 12.5 10H8.06l-2.83 2.83A.5.5 0 0 1 4.4 12.5V10H3.5A1.5 1.5 0 0 1 2 8.5v-6Z" />
+    </svg>
+  );
+}
+
+function CommentThread({ comments, collapsed, onToggleCollapse }) {
   return (
     <tr className="comment-thread-row">
       <td colSpan={4}>
         <div className="comment-thread">
-          {comments.map((c) => (
-            <div className={`comment-thread-item${c.outdated ? " outdated" : ""}`} key={c.id}>
-              <div className="comment-thread-meta">
-                <span className="comment-thread-author">{c.user}</span>
-                {c.outdated && (
-                  <span className="comment-thread-tag" title="The code around this comment has changed since it was posted">
-                    outdated
-                  </span>
-                )}
+          <button
+            type="button"
+            className="comment-thread-toggle"
+            onClick={onToggleCollapse}
+            aria-expanded={!collapsed}
+          >
+            <CommentIcon />
+            <span>
+              {comments.length} comment{comments.length > 1 ? "s" : ""}
+            </span>
+            <span className="comment-thread-chevron">{collapsed ? "▸" : "▾"}</span>
+          </button>
+          {!collapsed &&
+            comments.map((c) => (
+              <div className={`comment-thread-item${c.outdated ? " outdated" : ""}`} key={c.id}>
+                <div className="comment-thread-body">{c.body}</div>
+                <div className="comment-thread-footer">
+                  <span className="comment-thread-author">{c.user}</span>
+                  {c.outdated && (
+                    <span
+                      className="comment-thread-tag"
+                      title="The code around this comment has changed since it was posted"
+                    >
+                      outdated
+                    </span>
+                  )}
+                  <a
+                    className="comment-thread-link"
+                    href={c.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View on GitHub
+                  </a>
+                </div>
               </div>
-              <div className="comment-thread-body">{c.body}</div>
-              <a className="comment-thread-link" href={c.htmlUrl} target="_blank" rel="noreferrer">
-                View on GitHub
-              </a>
-            </div>
-          ))}
+            ))}
         </div>
       </td>
     </tr>
@@ -102,6 +138,15 @@ export default function DiffBlock({
   const [collapsed, setCollapsed] = useState(false);
   const [selection, setSelection] = useState(null); // { anchor, start, end }
   const [dragging, setDragging] = useState(false);
+  const [collapsedThreads, setCollapsedThreads] = useState(() => new Set());
+
+  function toggleThreadCollapsed(flatIndex) {
+    setCollapsedThreads((prev) => {
+      const next = new Set(prev);
+      next.has(flatIndex) ? next.delete(flatIndex) : next.add(flatIndex);
+      return next;
+    });
+  }
 
   // Marking a diff viewed collapses it, mirroring GitHub's "Viewed"
   // checkbox; un-checking it does not force it back open.
@@ -287,7 +332,13 @@ export default function DiffBlock({
                         <td className="diff-line-marker">{MARKERS[line.type] ?? " "}</td>
                         <td className="diff-line-content">{line.content}</td>
                       </tr>
-                      {lineComments.length > 0 && <CommentThread comments={lineComments} />}
+                      {lineComments.length > 0 && (
+                        <CommentThread
+                          comments={lineComments}
+                          collapsed={collapsedThreads.has(flatIndex)}
+                          onToggleCollapse={() => toggleThreadCollapsed(flatIndex)}
+                        />
+                      )}
                       {isSelected && flatIndex === selection.end && !dragging && (
                         <CommentComposer
                           onSubmit={submitComment}
