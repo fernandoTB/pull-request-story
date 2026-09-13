@@ -24,7 +24,7 @@ steps:
           is opt-in, never a breaking change for a repo that hasn't set it
           up (including every repo already using `pr-story` today).
       - type: diff
-        ref: src/config.mjs#L1-L30
+        ref: src/config.mjs#L1-L31
         caption: "Reading the preference - or falling back to nothing."
       - type: text
         content: |
@@ -48,6 +48,13 @@ steps:
     story:
       - type: text
         content: |
+          `cli.mjs` pulls in the new config functions and `getCurrentBranch`
+          alongside everything it already imported.
+      - type: diff
+        ref: src/cli.mjs#L1-L21
+        caption: "New imports: config.mjs's exports, and getCurrentBranch."
+      - type: text
+        content: |
           Multi-file mode needs to know which branch is checked out, to
           find that branch's own story.
       - type: diff
@@ -63,12 +70,23 @@ steps:
         caption: "One resolver, shared by validate/resolve/tell/init."
       - type: text
         content: |
+          The CLI's own `--help` text and its `[file]` argument
+          description both mention the new config command now, so
+          `set-mode` isn't only discoverable by reading the docs.
+      - type: diff
+        ref: src/cli.mjs#L27-L35
+        caption: "Top-level --help text mentions `config set-mode`."
+      - type: diff
+        ref: src/cli.mjs#L67-L79
+        caption: "The [file] argument's own description, same idea."
+      - type: text
+        content: |
           `init` and the new `config set-mode` command are the only two
           that write anything - `init` now creates the directory a
           per-branch path needs, and asks the config for the base location
           instead of assuming the root.
       - type: diff
-        ref: src/cli.mjs#L204-L251
+        ref: src/cli.mjs#L204-L253
         caption: "init respects the config; config set-mode writes it."
       - type: text
         content: |
@@ -79,6 +97,14 @@ steps:
       - type: diff
         ref: src/schema.mjs#L30-L39
         caption: "A clear message instead of an ENOENT stack trace."
+      - type: text
+        content: |
+          And any other error from any command - not just a missing
+          file - now prints a clean one-line message instead of a raw
+          stack trace, since none of this is meant to look like a crash.
+      - type: diff
+        ref: src/cli.mjs#L274-L277
+        caption: "One handler for every command's top-level errors."
 
   - name: "Document the choice, and let the skill ask for it"
     description: |
@@ -93,17 +119,38 @@ steps:
       - skills/pr-story/reference.md
     story:
       - type: diff
-        ref: skills/pr-story/SKILL.md#L18-L33
+        ref: docs/FORMAT.md#L1-L7
+        caption: "FORMAT.md's own intro now points at the new section below."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L18-L35
         caption: "Step 0: ask the human, once, if there's no config yet."
       - type: diff
-        ref: skills/pr-story/reference.md#L104-L133
+        ref: skills/pr-story/SKILL.md#L44-L47
+        caption: "Step 3 (writing the file): `init` now writes wherever the config says."
+      - type: diff
+        ref: skills/pr-story/reference.md#L104-L148
         caption: "reference.md: the config file's exact shape and resolution order."
       - type: diff
-        ref: docs/FORMAT.md#L194-L219
+        ref: docs/FORMAT.md#L194-L227
         caption: "FORMAT.md: the same, for a human reader."
       - type: diff
-        ref: README.md#L79-L83
+        ref: docs/FORMAT.md#L173-L197
+        caption: "The CLI usage list: still no required arguments, config or not."
+      - type: diff
+        ref: README.md#L79-L88
         caption: "README: how to switch modes, one line each."
+      - type: diff
+        ref: README.md#L109-L111
+        caption: "README's architecture list gains a line for config.mjs."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L72-L77
+        caption: "Reviewing: find the right branch's story under multi-file mode."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L91-L95
+        caption: "Format essentials: the one-line summary of the config file."
+      - type: diff
+        ref: skills/pr-story/reference.md#L7-L11
+        caption: "reference.md's file-location section, pointing at the config section."
 
   - name: "Migrate this repo's own story to multi-file mode"
     description: |
@@ -114,7 +161,9 @@ steps:
       whichever commit last touched it, same as any other renamed file.
     files:
       - .pr-story.config.yml
+      - .pr-story.yml
       - .pr-story/claude-pr-review-storytelling-mxykkt.yml
+      - dist-plugin/cli.mjs
     story:
       - type: text
         content: |
@@ -127,5 +176,21 @@ steps:
           .pr-story/claude-pr-review-storytelling-mxykkt.yml`, then
           rewritten to tell only this PR's own story - the same scoping
           discipline every PR since #2 has followed, just in its new home.
+          Git saw the rewrite as too different from the old content to
+          detect as a rename, so the old root file shows up as a plain
+          deletion - referenced here as one whole file rather than walked
+          through line by line, since there's nothing left in it to narrate.
+      - type: diff
+        ref: .pr-story.yml
+        caption: "The old root file, gone - its history lives on at whichever commit last touched it."
       - type: diff
         ref: .pr-story/claude-pr-review-storytelling-mxykkt.yml
+      - type: text
+        content: |
+          `dist-plugin/cli.mjs` is the bundled, dependency-free CLI this
+          plugin ships - generated by the build from everything above,
+          never hand-edited. Referenced here as one file rather than
+          narrated hunk by hunk, same as any other build artifact.
+      - type: diff
+        ref: dist-plugin/cli.mjs
+        caption: "Regenerated bundle - same source changes, one file."
