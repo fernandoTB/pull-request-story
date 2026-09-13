@@ -10,6 +10,13 @@ function lineNumberOf(line) {
   return line.type === "del" ? line.oldLine : line.newLine;
 }
 
+function rangeLabelOf(c) {
+  if (!c.startLine || c.startLine === c.line) return `Commented on line ${c.line}`;
+  const start = Math.min(c.startLine, c.line);
+  const end = Math.max(c.startLine, c.line);
+  return `Commented on lines ${start}-${end}`;
+}
+
 function CommentIcon() {
   return (
     <svg
@@ -45,6 +52,7 @@ function CommentThread({ comments, collapsed, onToggleCollapse }) {
           {!collapsed &&
             comments.map((c) => (
               <div className={`comment-thread-item${c.outdated ? " outdated" : ""}`} key={c.id}>
+                <div className="comment-thread-range">{rangeLabelOf(c)}</div>
                 <div className="comment-thread-body">{c.body}</div>
                 <div className="comment-thread-footer">
                   <span className="comment-thread-author">{c.user}</span>
@@ -305,20 +313,24 @@ export default function DiffBlock({
                   const { line, flatIndex } = row;
                   const isSelected =
                     !!selection && flatIndex >= selection.start && flatIndex <= selection.end;
+                  const lineNum = lineNumberOf(line);
+                  const side = sideOf(line);
+                  const isCommented = (comments ?? []).some((c) => {
+                    if (c.path !== path || c.side !== side) return false;
+                    const start = Math.min(c.startLine ?? c.line, c.line);
+                    const end = Math.max(c.startLine ?? c.line, c.line);
+                    return lineNum >= start && lineNum <= end;
+                  });
                   const cls = [
                     line.type === "add" ? "diff-line-add" : "",
                     line.type === "del" ? "diff-line-del" : "",
                     isSelected ? "diff-line-selected" : "",
+                    isCommented ? "diff-line-commented" : "",
                   ]
                     .filter(Boolean)
                     .join(" ");
                   const lineComments = (comments ?? [])
-                    .filter(
-                      (c) =>
-                        c.path === path &&
-                        c.line === lineNumberOf(line) &&
-                        c.side === sideOf(line)
-                    )
+                    .filter((c) => c.path === path && c.line === lineNum && c.side === side)
                     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
                   return (
                     <React.Fragment key={i}>

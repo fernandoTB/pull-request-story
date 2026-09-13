@@ -463,6 +463,13 @@ body {
   background: var(--accent-bg) !important;
 }
 
+/* Persistent marker for every line an existing comment covers - inset so
+   it never disturbs the row's padding/box model over add/del/context
+   backgrounds alike. */
+.diff-line-commented td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .comment-composer-row td {
   padding: 10px 12px;
   background: var(--bg);
@@ -569,6 +576,13 @@ body {
 
 .comment-thread-item.outdated {
   opacity: 0.7;
+}
+
+.comment-thread-range {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  margin-bottom: 4px;
 }
 
 /* The comment's own words, not metadata - a clearer, larger, non-mono
