@@ -1,143 +1,102 @@
 version: 1
-title: "Post line/range comments straight to a real GitHub PR"
+title: "Fail validation when the story doesn't account for the whole diff"
 base: origin/main
 head: HEAD
 github:
-  pr: 2
+  pr: 3
 steps:
-  - name: "Resolve a GitHub token without asking for a new one"
+  - name: "Check that every changed line is referenced by some step"
     description: |
-      The one hard requirement going in: no new token to create. Most
-      developers already have GitHub auth set up one way or another - the
-      GitHub CLI, a cached git credential, or an env var CI already sets -
-      so we try those, in order, before ever telling someone to go create
-      a Personal Access Token.
+      Referencing individual lines is only half the guarantee - nothing
+      stopped a step from being forgotten entirely, or a file's leftover
+      changes from just never being mentioned. `prstory validate --coverage`
+      diffs the real base...head and fails if any added/removed line falls
+      outside every step's `diff` ref, so a coding agent (or a human) has a
+      concrete, automatable signal that something either needs a step or
+      needs to be cleaned up before the PR is done.
     files:
-      - src/github-auth.mjs
-    story:
-      - type: text
-        content: |
-          First rung: ask the GitHub CLI directly. If `gh auth login` was
-          ever run, this just works, no prompt.
-      - type: diff
-        ref: src/github-auth.mjs#L3-L16
-        caption: "gh auth token - the fast path most developers already have."
-      - type: text
-        content: |
-          Second rung: git's own credential store. This also transparently
-          picks up `gh`'s git credential helper if that's how someone
-          authenticated, so it's not just a fallback for HTTPS PATs.
-      - type: diff
-        ref: src/github-auth.mjs#L18-L35
-        caption: "git credential fill - reads what git already has cached."
-      - type: diff
-        ref: src/github-auth.mjs#L43-L49
-        caption: "The whole ladder: gh, then git credentials, then env vars, then nothing."
-
-  - name: "Wire a github.pr target into the CLI"
-    description: |
-      Commenting needs to know *which* PR to post to. owner/repo shouldn't
-      be typed twice when the git remote already has them - only the PR
-      number is real, unrecoverable configuration, so that's the only
-      thing that goes in the story file.
-    files:
-      - src/story-schema.json
       - src/git.mjs
+      - src/resolver.mjs
       - src/cli.mjs
-      - src/github-api.mjs
     story:
       - type: text
         content: |
-          The schema gained one optional field: `github: { pr }`. Nothing
-          else - `owner`/`repo` come from git, not from here.
+          Wired up first: `cli.mjs` imports the new coverage function
+          alongside the existing resolver import.
       - type: diff
-        ref: src/story-schema.json#L27-L39
-        caption: "The only new schema field this feature needed."
+        ref: src/cli.mjs#L1-L9
+        caption: "One more import - computeDiffCoverage."
       - type: text
         content: |
-          owner/repo are parsed straight out of the `origin` remote URL,
-          https or ssh, so they can never drift from the actual repo.
+          The check needs the diff for *every* file the PR touches, not
+          just one at a time like the resolver already does.
       - type: diff
-        ref: src/git.mjs#L48-L63
-        caption: "Deriving owner/repo instead of asking for them again."
+        ref: src/git.mjs#L40-L45
+        caption: "The same three-dot diff, unfiltered by path."
       - type: text
         content: |
-          Putting it together: no `github.pr` set, no github.com remote
-          found, or no token resolved each disable the feature with a
-          specific reason - never a crash, never a silent no-op.
+          Coverage is computed by re-using the resolver's own line-position
+          logic instead of duplicating it - `toHunk`/`assignPositions` just
+          needed to become exported, alongside a new import for the
+          whole-repo diff.
       - type: diff
-        ref: src/cli.mjs#L90-L110
-        caption: "Every reason commenting can be unavailable, surfaced to the UI."
+        ref: src/resolver.mjs#L1-L50
+        caption: "Reusing existing logic: two exports, one new import."
       - type: text
         content: |
-          The actual GitHub calls are a small `fetch` wrapper - no octokit
-          dependency, keeps the zero-dependency CLI bundle zero-dependency.
-          The API base is overridable, which doubles as GitHub Enterprise
-          Server support (and is what made this testable against a local
-          stub).
+          Every step's refs are unioned into per-file covered ranges (a
+          bare `path` ref covers the whole file), then every real
+          added/removed line's position is checked against them - a
+          deletion's position is interpolated the same way a trimmed hunk's
+          would be, so a range's edges behave consistently either way.
       - type: diff
-        ref: src/github-api.mjs#L1-L29
-        caption: "getPullRequest + createReviewComment, plain fetch."
+        ref: src/resolver.mjs#L170-L230
+        caption: "Union the story's coverage, then flag every line outside it."
+      - type: text
+        content: |
+          Wired into `validate` as an opt-in flag rather than the default,
+          so plain schema validation stays fast and git-independent; the
+          report groups consecutive uncovered lines into ranges instead of
+          listing each one.
+      - type: diff
+        ref: src/cli.mjs#L54-L99
+        caption: "prstory validate --coverage: report and exit non-zero."
 
-  - name: "Serve /api/comment locally, without ever exposing the token"
+  - name: "Document it, and prove it on this repo's own story"
     description: |
-      The token can never reach the browser - only the local Express
-      server (already running for `prstory tell`) holds it, and only it
-      talks to GitHub. Since this server can now write to a real GitHub PR
-      using whatever credentials it found on the machine, it also needed
-      to stop listening on every network interface.
+      A validation check nobody knows to run doesn't help. Documented in
+      the format spec, the skill (as a step in the "verify before
+      finishing" checklist an agent already follows), and the reference -
+      including the one workaround worth knowing: a bare `path` ref for a
+      file that's genuinely not worth narrating line-by-line, like a
+      regenerated bundle.
     files:
-      - src/server.mjs
+      - README.md
+      - docs/FORMAT.md
+      - skills/pr-story/SKILL.md
+      - skills/pr-story/reference.md
+      - .pr-story.yml
+      - dist-plugin/cli.mjs
     story:
+      - type: diff
+        ref: README.md#L64-L79
+        caption: "README: --coverage in the usage list."
+      - type: diff
+        ref: docs/FORMAT.md#L172-L192
+        caption: "FORMAT.md: the full explanation, plus the bare-path-ref tip."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L36-L50
+        caption: "SKILL.md: --coverage added to the verify-before-finishing steps."
+      - type: diff
+        ref: skills/pr-story/reference.md#L100-L113
+        caption: "reference.md: a dedicated Coverage checking section."
       - type: text
         content: |
-          `/api/github-status` tells the UI whether commenting is on and
-          why, but strips the token out of the response before sending it.
+          This file's own diff, and the generated bundle/UI assets that
+          rebuild alongside every change here, are exactly the "not worth
+          narrating" case the tip above describes - referenced by bare
+          path rather than left out and failing the check they introduce.
       - type: diff
-        ref: src/server.mjs#L28-L35
-        caption: "Status for the UI, token withheld."
-      - type: text
-        content: |
-          `/api/comment` fetches the PR's current head sha (so the comment
-          always anchors to the real tip, not a stale local guess), then
-          posts the review comment - a single-line payload, or a range
-          when `startLine` differs from `line`.
+        ref: .pr-story.yml
       - type: diff
-        ref: src/server.mjs#L37-L65
-        caption: "The only place the token is ever used."
-      - type: diff
-        ref: src/server.mjs#L85-L90
-        caption: "127.0.0.1 only, now that this server can write to GitHub."
-
-  - name: "Select a line or range in the UI and post it to GitHub"
-    description: |
-      The reviewing half of the loop: click a line in any resolved diff,
-      shift-click to extend a range, write the comment, and it lands on
-      that exact spot on the real pull request - the same experience as
-      commenting directly in GitHub's own diff view.
-    files:
-      - web/src/components/DiffBlock.jsx
-    story:
-      - type: text
-        content: |
-          Only lines that are part of an actual resolved diff are
-          commentable - a reference that fell back to unchanged context
-          has nothing GitHub would accept a position for.
-      - type: diff
-        ref: web/src/components/DiffBlock.jsx#L102-L114
-        caption: "Gating on a real diff, and flattening hunks into a selectable list."
-      - type: text
-        content: |
-          A click selects one line; shift-click extends the range - but
-          only within the same side (LEFT/RIGHT), since that's what
-          GitHub's own multi-line comment API expects.
-      - type: diff
-        ref: web/src/components/DiffBlock.jsx#L116-L129
-        caption: "Same-side range selection by clicking line rows."
-      - type: text
-        content: |
-          Submitting builds exactly the shape `/api/comment` expects from
-          whichever lines are selected, range or not.
-      - type: diff
-        ref: web/src/components/DiffBlock.jsx#L131-L152
-        caption: "From a UI selection to a comment payload."
+        ref: dist-plugin/cli.mjs

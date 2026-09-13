@@ -66,9 +66,15 @@ review a PR/branch that already has a `.pr-story.yml`.
 ```sh
 prstory init                        # scaffold a starter .pr-story.yml
 prstory validate                    # check it against the schema
+prstory validate --coverage         # + fail if any changed line has no step
 prstory resolve                     # print the fully resolved story as JSON
 prstory tell                        # resolve it against git and open the UI
 ```
+
+`--coverage` diffs the real `base...head` and fails if any changed line
+isn't covered by some step - no code slips through unreviewed, and it
+doubles as a check a coding agent can run on its own story before calling
+a PR done.
 
 All four default to `.pr-story.yml` at the repo root; `base`/`head` come
 from the file itself (see "Choosing base" in `docs/FORMAT.md`). Pass

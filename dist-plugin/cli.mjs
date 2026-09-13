@@ -37045,6 +37045,9 @@ async function diffForFile(repoRoot, base, head, filePath) {
     filePath
   ]);
 }
+async function diffWholeRepo(repoRoot, base, head) {
+  return git(repoRoot, ["diff", "--unified=3", "--no-color", `${base}...${head}`]);
+}
 async function showFileAtRef(repoRoot, ref, filePath) {
   try {
     return await git(repoRoot, ["show", `${ref}:${filePath}`]);
@@ -37213,6 +37216,53 @@ async function resolveDiffItem(repoRoot, base, head, item) {
     }
   }
   return { ...base_, kind: "empty", file: { from: filePath, to: filePath }, hunks: [] };
+}
+function groupIntoRanges(sortedNumbers) {
+  const ranges = [];
+  for (const n of sortedNumbers) {
+    const last = ranges[ranges.length - 1];
+    if (last && n === last.end + 1) last.end = n;
+    else ranges.push({ start: n, end: n });
+  }
+  return ranges;
+}
+async function computeDiffCoverage(repoRoot, base, head, story) {
+  const coverage = /* @__PURE__ */ new Map();
+  for (const step of story.steps) {
+    for (const item of step.story) {
+      if (item.type !== "diff") continue;
+      const { path: itemPath, range } = parseRef(item.ref);
+      const entry = coverage.get(itemPath) ?? { wholeFile: false, ranges: [] };
+      if (!range) entry.wholeFile = true;
+      else entry.ranges.push(range);
+      coverage.set(itemPath, entry);
+    }
+  }
+  const raw = await diffWholeRepo(repoRoot, base, head);
+  if (!raw || !raw.trim()) return { uncovered: [] };
+  const uncovered = [];
+  for (const file of (0, import_parse_diff.default)(raw)) {
+    const filePath = file.to && file.to !== "/dev/null" ? file.to : file.from;
+    const entry = coverage.get(filePath);
+    if (entry?.wholeFile) continue;
+    const changedPositions = [];
+    for (const chunk of file.chunks) {
+      const hunk = toHunk(chunk);
+      const positions = assignPositions(hunk.lines);
+      hunk.lines.forEach((line, i) => {
+        if (line.type === "add" || line.type === "del") changedPositions.push(positions[i]);
+      });
+    }
+    if (!changedPositions.length) continue;
+    const uncoveredPositions = changedPositions.filter(
+      (pos) => !entry || !entry.ranges.some((r) => pos >= r.start && pos <= r.end)
+    );
+    if (uncoveredPositions.length) {
+      const sorted = [...new Set(uncoveredPositions)].sort((a, b) => a - b);
+      uncovered.push({ path: filePath, ranges: groupIntoRanges(sorted) });
+    }
+  }
+  return { uncovered };
 }
 async function resolveStory(repoRoot, story, { base, head }) {
   const resolvedSteps = [];
@@ -37516,10 +37566,14 @@ function resolveBaseHead(story, opts) {
   const head = opts.head ?? story.head ?? "HEAD";
   return { base, head };
 }
-withCommonOptions(program2.command("validate")).description("validate a story file against the schema").action(async (file, opts) => {
+withCommonOptions(program2.command("validate")).description("validate a story file against the schema").option(
+  "--coverage",
+  "also check that every changed line in base...head is referenced by some step"
+).action(async (file, opts) => {
   const storyPath = await resolveStoryPath(file, opts.cwd);
+  let story;
   try {
-    const story = loadStoryFile(storyPath);
+    story = loadStoryFile(storyPath);
     console.log(
       `OK  ${storyPath} is a valid PR story (${story.steps.length} step${story.steps.length === 1 ? "" : "s"}).`
     );
@@ -37531,6 +37585,25 @@ withCommonOptions(program2.command("validate")).description("validate a story fi
     }
     throw err;
   }
+  if (!opts.coverage) return;
+  const repoRoot = await resolveRepoRoot(opts.cwd);
+  const { base, head } = resolveBaseHead(story, opts);
+  const { uncovered } = await computeDiffCoverage(repoRoot, base, head, story);
+  if (!uncovered.length) {
+    console.log(`OK  every changed line in ${base}...${head} is referenced by the story.`);
+    return;
+  }
+  console.error(`
+Uncovered changes in ${base}...${head} (not referenced by any step):`);
+  for (const u of uncovered) {
+    const ranges = u.ranges.map((r) => r.start === r.end ? `L${r.start}` : `L${r.start}-L${r.end}`).join(", ");
+    console.error(`  ${u.path}: ${ranges}`);
+  }
+  console.error(
+    `
+${uncovered.length} file${uncovered.length === 1 ? "" : "s"} with changes the story never mentions - either add a step covering them, or confirm they're leftover and should be cleaned up.`
+  );
+  process.exitCode = 1;
 });
 withCommonOptions(program2.command("resolve")).description("resolve every diff reference against git history and print the resolved JSON").option("--pretty", "pretty-print the JSON", true).action(async (file, opts) => {
   const storyPath = await resolveStoryPath(file, opts.cwd);

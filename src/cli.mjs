@@ -3,7 +3,7 @@ import { Command } from "commander";
 import path from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
 import { loadStoryFile, StoryValidationError } from "./schema.mjs";
-import { resolveStory } from "./resolver.mjs";
+import { resolveStory, computeDiffCoverage } from "./resolver.mjs";
 import { resolveRepoRoot, detectDefaultBase, getRemoteOwnerRepo } from "./git.mjs";
 import { resolveGitHubToken } from "./github-auth.mjs";
 import { startServer } from "./server.mjs";
@@ -53,10 +53,15 @@ function resolveBaseHead(story, opts) {
 
 withCommonOptions(program.command("validate"))
   .description("validate a story file against the schema")
+  .option(
+    "--coverage",
+    "also check that every changed line in base...head is referenced by some step"
+  )
   .action(async (file, opts) => {
     const storyPath = await resolveStoryPath(file, opts.cwd);
+    let story;
     try {
-      const story = loadStoryFile(storyPath);
+      story = loadStoryFile(storyPath);
       console.log(
         `OK  ${storyPath} is a valid PR story (${story.steps.length} step${
           story.steps.length === 1 ? "" : "s"
@@ -70,6 +75,27 @@ withCommonOptions(program.command("validate"))
       }
       throw err;
     }
+
+    if (!opts.coverage) return;
+    const repoRoot = await resolveRepoRoot(opts.cwd);
+    const { base, head } = resolveBaseHead(story, opts);
+    const { uncovered } = await computeDiffCoverage(repoRoot, base, head, story);
+    if (!uncovered.length) {
+      console.log(`OK  every changed line in ${base}...${head} is referenced by the story.`);
+      return;
+    }
+    console.error(`\nUncovered changes in ${base}...${head} (not referenced by any step):`);
+    for (const u of uncovered) {
+      const ranges = u.ranges
+        .map((r) => (r.start === r.end ? `L${r.start}` : `L${r.start}-L${r.end}`))
+        .join(", ");
+      console.error(`  ${u.path}: ${ranges}`);
+    }
+    console.error(
+      `\n${uncovered.length} file${uncovered.length === 1 ? "" : "s"} with changes the story never mentions - ` +
+        `either add a step covering them, or confirm they're leftover and should be cleaned up.`
+    );
+    process.exitCode = 1;
   });
 
 withCommonOptions(program.command("resolve"))

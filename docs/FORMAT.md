@@ -172,11 +172,23 @@ step needed.
 ## Using the CLI
 
 ```sh
-prstory init                # scaffold .pr-story.yml at the repo root
-prstory validate            # schema-check it
-prstory resolve             # print the fully resolved story as JSON
-prstory tell                # resolve + serve the interactive stepper UI
+prstory init                 # scaffold .pr-story.yml at the repo root
+prstory validate             # schema-check it
+prstory validate --coverage  # + fail if any changed line has no step
+prstory resolve              # print the fully resolved story as JSON
+prstory tell                 # resolve + serve the interactive stepper UI
 ```
+
+`validate --coverage` diffs the real `base...head` and compares it against
+every step's `diff` refs: any added/removed line that falls outside all of
+them is reported, file by file, and the command exits non-zero. It's a way
+to guarantee no code slips through unreviewed - a forgotten file or chunk,
+or leftover changes that shouldn't be in the PR - useful as a check a
+coding agent runs on itself before calling a story (and the PR) done. A
+bare `path` ref (no `#L` range) covers that file's whole diff in one go -
+reach for it on a file that's part of the change but not worth narrating
+line-by-line (a regenerated lockfile, a build artifact) instead of leaving
+it out and failing the check.
 
 All four default to `.pr-story.yml` at the repo root and need no other
 arguments; pass a path explicitly (`prstory validate some/other.yml`) only

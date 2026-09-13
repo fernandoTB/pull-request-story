@@ -101,6 +101,16 @@ Resolution (done by `prstory`, never by hand):
    always run `prstory resolve` (see SKILL.md) before considering a story
    file done, so this never reaches a human reviewer.
 
+## Coverage checking
+
+`prstory validate --coverage` diffs the real `base...head` and fails if any
+added/removed line isn't inside some step's `diff` ref range - catching a
+forgotten file or chunk, or flagging leftover changes that don't belong in
+the PR at all. A bare `path` ref (no `#L` range) covers that file's entire
+diff at once - use it for a file that's part of the change but not worth
+walking line-by-line (e.g. a regenerated lockfile or build artifact),
+rather than leaving it unmentioned and failing the check.
+
 ## Common mistakes to avoid
 
 - Copying diff text into `content` instead of using a `type: diff` item

@@ -37,6 +37,12 @@ export async function diffForFile(repoRoot, base, head, filePath) {
   ]);
 }
 
+/** Same three-dot diff, but for every file the PR touches - used to check
+ * a story's coverage of the real diff, not just resolve one reference. */
+export async function diffWholeRepo(repoRoot, base, head) {
+  return git(repoRoot, ["diff", "--unified=3", "--no-color", `${base}...${head}`]);
+}
+
 export async function showFileAtRef(repoRoot, ref, filePath) {
   try {
     return await git(repoRoot, ["show", `${ref}:${filePath}`]);
