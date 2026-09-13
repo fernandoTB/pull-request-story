@@ -71,7 +71,12 @@ export async function resolveDiffItem(repoRoot, base, head, item) {
             deletions: file.deletions,
             isNew: !!file.new,
             isDeleted: !!file.deleted,
-            isRenamed: !!file.from && !!file.to && file.from !== file.to,
+            isRenamed:
+              !file.new &&
+              !file.deleted &&
+              !!file.from &&
+              !!file.to &&
+              file.from !== file.to,
           },
           hunks,
         };
