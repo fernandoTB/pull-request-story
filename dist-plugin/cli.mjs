@@ -37286,6 +37286,7 @@ import { existsSync } from "node:fs";
 
 // src/github-api.mjs
 var API_BASE = process.env.PRSTORY_GITHUB_API_BASE || "https://api.github.com";
+var GRAPHQL_BASE = process.env.PRSTORY_GITHUB_GRAPHQL_BASE || "https://api.github.com/graphql";
 async function ghFetch(token, pathOrUrl, options = {}) {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${API_BASE}${pathOrUrl}`;
   const res = await fetch(url, {
@@ -37337,11 +37338,59 @@ async function listReviewComments(token, owner, repo, pr) {
   }
   return comments;
 }
+async function ghGraphQL(token, query, variables) {
+  const res = await fetch(GRAPHQL_BASE, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ query, variables })
+  });
+  const json2 = await res.json();
+  if (!res.ok || json2.errors) {
+    const message = json2.errors?.map((e) => e.message).join("; ") || res.statusText;
+    throw new Error(`GitHub GraphQL request failed (${res.status}): ${message}`);
+  }
+  return json2.data;
+}
+var RESOLVED_THREADS_QUERY = `
+  query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $pr) {
+        reviewThreads(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            isResolved
+            comments(first: 100) {
+              nodes { databaseId }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+async function getResolvedCommentIds(token, owner, repo, pr) {
+  const resolved = /* @__PURE__ */ new Set();
+  let cursor = null;
+  for (; ; ) {
+    const data = await ghGraphQL(token, RESOLVED_THREADS_QUERY, { owner, repo, pr, cursor });
+    const threads = data.repository.pullRequest.reviewThreads;
+    for (const thread of threads.nodes) {
+      if (!thread.isResolved) continue;
+      for (const c of thread.comments.nodes) resolved.add(c.databaseId);
+    }
+    if (!threads.pageInfo.hasNextPage) break;
+    cursor = threads.pageInfo.endCursor;
+  }
+  return resolved;
+}
 
 // src/server.mjs
 var __dirname = path.dirname(fileURLToPath(import.meta.url));
 var DIST_DIR = path.join(__dirname, "..", "web", "dist");
-function normalizeComment(c) {
+function normalizeComment(c, resolvedIds = /* @__PURE__ */ new Set()) {
   return {
     id: c.id,
     inReplyToId: c.in_reply_to_id ?? null,
@@ -37351,6 +37400,7 @@ function normalizeComment(c) {
     startLine: c.start_line ?? c.original_start_line ?? null,
     startSide: c.start_side ?? null,
     outdated: c.line == null,
+    resolved: resolvedIds.has(c.id),
     body: c.body,
     user: c.user?.login ?? "unknown",
     htmlUrl: c.html_url,
@@ -37382,13 +37432,16 @@ async function startServer({ resolved, reload, port = 4173, github = null }) {
   app.get("/api/comments", async (_req, res) => {
     if (!github?.enabled) return res.json([]);
     try {
-      const comments = await listReviewComments(
-        github.token,
-        github.owner,
-        github.repo,
-        github.pr
-      );
-      res.json(comments.map(normalizeComment));
+      const [comments, resolvedIds] = await Promise.all([
+        listReviewComments(github.token, github.owner, github.repo, github.pr),
+        // Thread resolution is GraphQL-only; degrade to "none resolved"
+        // rather than failing the whole comments list if it errors (some
+        // token setups have REST but not GraphQL access).
+        getResolvedCommentIds(github.token, github.owner, github.repo, github.pr).catch(
+          () => /* @__PURE__ */ new Set()
+        )
+      ]);
+      res.json(comments.map((c) => normalizeComment(c, resolvedIds)));
     } catch (err) {
       res.status(502).json({ error: err.message });
     }

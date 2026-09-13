@@ -2,7 +2,12 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { getPullRequest, createReviewComment, listReviewComments } from "./github-api.mjs";
+import {
+  getPullRequest,
+  createReviewComment,
+  listReviewComments,
+  getResolvedCommentIds,
+} from "./github-api.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "..", "web", "dist");
@@ -12,7 +17,7 @@ const DIST_DIR = path.join(__dirname, "..", "web", "dist");
  * surrounding code has changed since the comment was posted - fall back to
  * `original_line`/`original_start_line` so the comment still shows up
  * (roughly in place) instead of disappearing, flagged as outdated. */
-function normalizeComment(c) {
+function normalizeComment(c, resolvedIds = new Set()) {
   return {
     id: c.id,
     inReplyToId: c.in_reply_to_id ?? null,
@@ -22,6 +27,7 @@ function normalizeComment(c) {
     startLine: c.start_line ?? c.original_start_line ?? null,
     startSide: c.start_side ?? null,
     outdated: c.line == null,
+    resolved: resolvedIds.has(c.id),
     body: c.body,
     user: c.user?.login ?? "unknown",
     htmlUrl: c.html_url,
@@ -59,13 +65,16 @@ export async function startServer({ resolved, reload, port = 4173, github = null
   app.get("/api/comments", async (_req, res) => {
     if (!github?.enabled) return res.json([]);
     try {
-      const comments = await listReviewComments(
-        github.token,
-        github.owner,
-        github.repo,
-        github.pr
-      );
-      res.json(comments.map(normalizeComment));
+      const [comments, resolvedIds] = await Promise.all([
+        listReviewComments(github.token, github.owner, github.repo, github.pr),
+        // Thread resolution is GraphQL-only; degrade to "none resolved"
+        // rather than failing the whole comments list if it errors (some
+        // token setups have REST but not GraphQL access).
+        getResolvedCommentIds(github.token, github.owner, github.repo, github.pr).catch(
+          () => new Set()
+        ),
+      ]);
+      res.json(comments.map((c) => normalizeComment(c, resolvedIds)));
     } catch (err) {
       res.status(502).json({ error: err.message });
     }

@@ -33,6 +33,7 @@ function CommentIcon() {
 }
 
 function CommentThread({ comments, collapsed, onToggleCollapse }) {
+  const allResolved = comments.every((c) => c.resolved);
   return (
     <tr className="comment-thread-row">
       <td colSpan={4}>
@@ -47,15 +48,26 @@ function CommentThread({ comments, collapsed, onToggleCollapse }) {
             <span>
               {comments.length} comment{comments.length > 1 ? "s" : ""}
             </span>
+            {allResolved && <span className="comment-thread-tag resolved">resolved</span>}
             <span className="comment-thread-chevron">{collapsed ? "▸" : "▾"}</span>
           </button>
           {!collapsed &&
             comments.map((c) => (
-              <div className={`comment-thread-item${c.outdated ? " outdated" : ""}`} key={c.id}>
+              <div
+                className={`comment-thread-item${c.outdated ? " outdated" : ""}${
+                  c.resolved ? " resolved" : ""
+                }`}
+                key={c.id}
+              >
                 <div className="comment-thread-range">{rangeLabelOf(c)}</div>
                 <div className="comment-thread-body">{c.body}</div>
                 <div className="comment-thread-footer">
                   <span className="comment-thread-author">{c.user}</span>
+                  {c.resolved && (
+                    <span className="comment-thread-tag resolved" title="This thread has been marked resolved on GitHub">
+                      resolved
+                    </span>
+                  )}
                   {c.outdated && (
                     <span
                       className="comment-thread-tag"

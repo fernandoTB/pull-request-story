@@ -578,6 +578,10 @@ body {
   opacity: 0.7;
 }
 
+.comment-thread-item.resolved {
+  opacity: 0.75;
+}
+
 .comment-thread-range {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -615,6 +619,11 @@ body {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0 5px;
+}
+
+.comment-thread-tag.resolved {
+  color: var(--done-text);
+  border-color: var(--done-text);
 }
 
 .comment-thread-link {

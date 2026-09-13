@@ -162,7 +162,12 @@ step needed.
   immediately in the same place, and stays visible (it's not a transient
   "posted!" toast; it's the same list a page reload re-fetches from
   GitHub). A comment whose surrounding code has since changed is still
-  shown, tagged "outdated", anchored to where it originally was.
+  shown, tagged "outdated", anchored to where it originally was. A
+  comment whose thread was marked **resolved** on GitHub is tagged too -
+  resolution only exists in GitHub's GraphQL API (not REST), so this
+  makes one extra, minimal GraphQL request per load; if that fails for
+  any reason (some token setups have REST but not GraphQL access) it
+  degrades to showing comments with no resolved tag, rather than failing.
 
 ## Using the CLI
 
