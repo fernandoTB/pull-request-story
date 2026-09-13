@@ -1,12 +1,24 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import path from "node:path";
-import { writeFileSync, existsSync } from "node:fs";
+import { writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { loadStoryFile, StoryValidationError } from "./schema.mjs";
 import { resolveStory, computeDiffCoverage } from "./resolver.mjs";
-import { resolveRepoRoot, detectDefaultBase, getRemoteOwnerRepo } from "./git.mjs";
+import {
+  resolveRepoRoot,
+  detectDefaultBase,
+  getRemoteOwnerRepo,
+  getCurrentBranch,
+} from "./git.mjs";
 import { resolveGitHubToken } from "./github-auth.mjs";
 import { startServer } from "./server.mjs";
+import {
+  loadPrstoryConfig,
+  writePrstoryConfig,
+  slugifyBranch,
+  CONFIG_FILENAME,
+  DEFAULT_STORIES_DIR,
+} from "./config.mjs";
 
 const STORY_FILENAME = ".pr-story.yml";
 
@@ -16,15 +28,39 @@ program
   .name("prstory")
   .description(
     "Tell the story of a pull request: an ordered, reviewable narrative on top of the git protocol.\n" +
-      `By convention the story lives at the repo root as ${STORY_FILENAME}, and carries its own base/head - so most commands take no arguments at all.`
+      `By default the story lives at the repo root as ${STORY_FILENAME} and carries its own base/head, ` +
+      `so most commands take no arguments at all - or run \`prstory config set-mode\` to keep one file ` +
+      `per branch/PR in a dedicated directory instead.`
   )
   .version("0.3.0");
 
-/** Resolve the story file path: an explicit [file] argument wins; otherwise
- * it's <repo-root>/.pr-story.yml, found from wherever the command is run. */
+/** Where this branch's story file lives in multi-file mode: one file per
+ * branch (which in this workflow means one per PR) in the configured
+ * directory, named after the branch itself. */
+async function multiFileStoryPath(repoRoot, storiesDir) {
+  const branch = await getCurrentBranch(repoRoot);
+  if (!branch) {
+    throw new Error(
+      "Can't determine the current branch (detached HEAD?) to find its story file in " +
+        `multi-file mode - pass the path explicitly instead.`
+    );
+  }
+  return path.join(repoRoot, storiesDir, `${slugifyBranch(branch)}.yml`);
+}
+
+/** Resolve the story file path: an explicit [file] argument always wins.
+ * Otherwise this repo's .pr-story.config.yml decides - a dedicated
+ * per-branch file in multi-file mode, or the original single
+ * .pr-story.yml at the repo root, same as when there's no config at all
+ * (this preference is opt-in, never a breaking change for repos that
+ * haven't set it up). */
 async function resolveStoryPath(file, cwd) {
   if (file) return path.resolve(cwd, file);
   const repoRoot = await resolveRepoRoot(cwd);
+  const config = loadPrstoryConfig(repoRoot);
+  if (config?.mode === "multi-file") {
+    return multiFileStoryPath(repoRoot, config.storiesDir);
+  }
   return path.join(repoRoot, STORY_FILENAME);
 }
 
@@ -32,7 +68,7 @@ function withCommonOptions(cmd) {
   return cmd
     .argument(
       "[file]",
-      `path to the story file (default: ${STORY_FILENAME} at the repo root)`
+      `path to the story file (default: ${STORY_FILENAME} at the repo root, or decided by ${CONFIG_FILENAME} if present)`
     )
     .option(
       "--base <ref>",
@@ -167,20 +203,52 @@ withCommonOptions(program.command("tell"))
 
 program
   .command("init")
-  .description(`scaffold a starter ${STORY_FILENAME} at the repo root`)
-  .argument("[file]", "path for the new story file (default: repo root)")
+  .description(`scaffold a starter story file (location depends on ${CONFIG_FILENAME}, if any)`)
+  .argument("[file]", "path for the new story file (default: decided by config, see `prstory config`)")
   .option("--cwd <dir>", "repository directory", process.cwd())
   .action(async (file, opts) => {
     const repoRoot = await resolveRepoRoot(opts.cwd);
-    const storyPath = file ? path.resolve(opts.cwd, file) : path.join(repoRoot, STORY_FILENAME);
+    let storyPath;
+    if (file) {
+      storyPath = path.resolve(opts.cwd, file);
+    } else {
+      const config = loadPrstoryConfig(repoRoot);
+      storyPath =
+        config?.mode === "multi-file"
+          ? await multiFileStoryPath(repoRoot, config.storiesDir)
+          : path.join(repoRoot, STORY_FILENAME);
+    }
     if (existsSync(storyPath)) {
       console.error(`${storyPath} already exists.`);
       process.exitCode = 1;
       return;
     }
+    mkdirSync(path.dirname(storyPath), { recursive: true });
     const base = await detectDefaultBase(repoRoot);
     writeFileSync(storyPath, template(base));
     console.log(`Wrote ${storyPath}`);
+  });
+
+const configCmd = program
+  .command("config")
+  .description(`manage ${CONFIG_FILENAME} (where story files live in this repo)`);
+
+configCmd
+  .command("set-mode")
+  .description("set (or change) how this repo keeps its story file(s) - asks nothing, just writes the choice")
+  .argument("<mode>", `"multi-file" (one committed file per branch/PR in a dedicated dir) or "local" (a single, gitignored .pr-story.yml)`)
+  .option("--stories-dir <dir>", `directory for multi-file mode (default: ${DEFAULT_STORIES_DIR})`)
+  .option("--cwd <dir>", "repository directory", process.cwd())
+  .action(async (mode, opts) => {
+    const repoRoot = await resolveRepoRoot(opts.cwd);
+    const { configPath, gitignored } = writePrstoryConfig(repoRoot, {
+      mode,
+      storiesDir: opts.storiesDir,
+    });
+    console.log(`Wrote ${configPath} (mode: ${mode}).`);
+    if (gitignored) {
+      console.log(`Added ${STORY_FILENAME} to .gitignore.`);
+    }
   });
 
 const template = (base) => `version: 1
@@ -203,4 +271,7 @@ steps:
         caption: "Optional caption for this snippet"
 `;
 
-program.parseAsync();
+program.parseAsync().catch((err) => {
+  console.error(err.message);
+  process.exitCode = 1;
+});

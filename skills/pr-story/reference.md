@@ -6,8 +6,9 @@ story file.
 
 ## File location
 
-Always `.pr-story.yml` at the **repo root**. `prstory` looks it up there by
-default - commands need no filename argument.
+By default, `.pr-story.yml` at the **repo root** - `prstory` looks it up
+there with no filename argument needed. See "Config file" below for the
+repo-wide preference that can change this to one file per branch/PR.
 
 ## Top-level shape
 
@@ -110,6 +111,40 @@ the PR at all. A bare `path` ref (no `#L` range) covers that file's entire
 diff at once - use it for a file that's part of the change but not worth
 walking line-by-line (e.g. a regenerated lockfile or build artifact),
 rather than leaving it unmentioned and failing the check.
+
+## Config file
+
+`.pr-story.config.yml`, repo root, **always committed** (unlike the story
+file(s) it points at, which may not be) - a one-time, repo-wide choice of
+where story files live. Absent entirely, everything behaves as if it said
+`mode: local`, so this is opt-in and never breaks a repo that hasn't set it
+up. SKILL.md step 0 covers *when* to create it (ask the human, once, the
+first time there's none); this is the shape:
+
+```yaml
+version: 1
+mode: multi-file      # or: local
+storiesDir: .pr-story  # multi-file only, defaults to ".pr-story"
+```
+
+| `mode`       | Where the story lives                                                                    | Committed? |
+|--------------|--------------------------------------------------------------------------------------------|------------|
+| `local`      | `.pr-story.yml` at the repo root (the original, single-file convention).                  | No - `prstory config set-mode local` adds it to `.gitignore` automatically. |
+| `multi-file` | `<storiesDir>/<branch-slug>.yml` - one file per branch, which in this workflow means one per PR. `slug` is the branch name lowercased with anything outside `[a-z0-9._-]` turned into `-` (`feature/Foo Bar` -> `feature-foo-bar`). | Yes - kept as project history, one file per PR. |
+
+Write it with the CLI, never by hand:
+
+```sh
+prstory config set-mode multi-file [--stories-dir <dir>]
+prstory config set-mode local
+```
+
+Every command that takes an optional `[file]` argument resolves it the same
+way: an explicit path always wins; with none given, `multi-file` mode looks
+up the **currently checked-out branch** in `storiesDir`, everything else
+falls back to `.pr-story.yml` at the root. Reviewing a different branch's
+story in multi-file mode means either checking that branch out first, or
+just passing its path explicitly (`prstory tell .pr-story/other-branch.yml`).
 
 ## Common mistakes to avoid
 

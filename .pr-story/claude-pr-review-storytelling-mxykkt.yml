@@ -1,0 +1,196 @@
+version: 1
+title: "Let a repo choose one story file per PR instead of always the root"
+base: origin/main
+head: HEAD
+github:
+  pr: 4
+steps:
+  - name: "A repo-wide, committed preference: multi-file vs. local"
+    description: |
+      A single `.pr-story.yml` at the root, overwritten for every new PR,
+      was starting to feel wrong going into git history - there's no trace
+      of what earlier PRs told, and the diff of that file is never really
+      "the PR's diff". The fix is a preference, not a hardcoded convention:
+      either commit one story per branch (which in practice means one per
+      PR) in a dedicated directory, or keep a single file but stop
+      committing it at all. Since this changes how the whole repo behaves,
+      it's a human's call, made once, not something to guess silently.
+    files:
+      - src/config.mjs
+    story:
+      - type: text
+        content: |
+          Absent entirely, everything behaves exactly like before - this
+          is opt-in, never a breaking change for a repo that hasn't set it
+          up (including every repo already using `pr-story` today).
+      - type: diff
+        ref: src/config.mjs#L1-L31
+        caption: "Reading the preference - or falling back to nothing."
+      - type: text
+        content: |
+          `local` mode's whole point only holds if the file is actually
+          gitignored - so writing the config also makes sure of that,
+          rather than trusting anyone to remember.
+      - type: diff
+        ref: src/config.mjs#L32-L72
+        caption: "Slugifying a branch name, and auto-gitignoring for local mode."
+
+  - name: "Wire the preference into every command that finds a story file"
+    description: |
+      Every command already had a `[file]` argument for an explicit
+      override - that part didn't need to change. What needed to change is
+      what happens with *no* argument: instead of always assuming the root
+      file, check the config first.
+    files:
+      - src/cli.mjs
+      - src/git.mjs
+      - src/schema.mjs
+    story:
+      - type: text
+        content: |
+          `cli.mjs` pulls in the new config functions and `getCurrentBranch`
+          alongside everything it already imported.
+      - type: diff
+        ref: src/cli.mjs#L1-L21
+        caption: "New imports: config.mjs's exports, and getCurrentBranch."
+      - type: text
+        content: |
+          Multi-file mode needs to know which branch is checked out, to
+          find that branch's own story.
+      - type: diff
+        ref: src/git.mjs#L80-L86
+        caption: "getCurrentBranch - null in detached HEAD."
+      - type: text
+        content: |
+          The one place every command's default path is decided: an
+          explicit argument always wins, otherwise the config decides
+          between a per-branch file and the original root file.
+      - type: diff
+        ref: src/cli.mjs#L37-L64
+        caption: "One resolver, shared by validate/resolve/tell/init."
+      - type: text
+        content: |
+          The CLI's own `--help` text and its `[file]` argument
+          description both mention the new config command now, so
+          `set-mode` isn't only discoverable by reading the docs.
+      - type: diff
+        ref: src/cli.mjs#L27-L35
+        caption: "Top-level --help text mentions `config set-mode`."
+      - type: diff
+        ref: src/cli.mjs#L67-L79
+        caption: "The [file] argument's own description, same idea."
+      - type: text
+        content: |
+          `init` and the new `config set-mode` command are the only two
+          that write anything - `init` now creates the directory a
+          per-branch path needs, and asks the config for the base location
+          instead of assuming the root.
+      - type: diff
+        ref: src/cli.mjs#L204-L253
+        caption: "init respects the config; config set-mode writes it."
+      - type: text
+        content: |
+          A missing story file used to crash with a raw Node stack trace -
+          more likely to actually happen now that a fresh branch in
+          multi-file mode has no file yet until `init` runs. One line
+          fixes it for every mode.
+      - type: diff
+        ref: src/schema.mjs#L30-L39
+        caption: "A clear message instead of an ENOENT stack trace."
+      - type: text
+        content: |
+          And any other error from any command - not just a missing
+          file - now prints a clean one-line message instead of a raw
+          stack trace, since none of this is meant to look like a crash.
+      - type: diff
+        ref: src/cli.mjs#L274-L277
+        caption: "One handler for every command's top-level errors."
+
+  - name: "Document the choice, and let the skill ask for it"
+    description: |
+      A preference nobody knows exists doesn't get set. The skill now asks
+      the human, once, the first time a repo has no config yet - not
+      something an agent should decide unilaterally, since it changes what
+      gets committed to the team's actual git history.
+    files:
+      - docs/FORMAT.md
+      - README.md
+      - skills/pr-story/SKILL.md
+      - skills/pr-story/reference.md
+    story:
+      - type: diff
+        ref: docs/FORMAT.md#L1-L7
+        caption: "FORMAT.md's own intro now points at the new section below."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L18-L35
+        caption: "Step 0: ask the human, once, if there's no config yet."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L44-L47
+        caption: "Step 3 (writing the file): `init` now writes wherever the config says."
+      - type: diff
+        ref: skills/pr-story/reference.md#L104-L148
+        caption: "reference.md: the config file's exact shape and resolution order."
+      - type: diff
+        ref: docs/FORMAT.md#L194-L227
+        caption: "FORMAT.md: the same, for a human reader."
+      - type: diff
+        ref: docs/FORMAT.md#L173-L197
+        caption: "The CLI usage list: still no required arguments, config or not."
+      - type: diff
+        ref: README.md#L79-L88
+        caption: "README: how to switch modes, one line each."
+      - type: diff
+        ref: README.md#L109-L111
+        caption: "README's architecture list gains a line for config.mjs."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L72-L77
+        caption: "Reviewing: find the right branch's story under multi-file mode."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L91-L95
+        caption: "Format essentials: the one-line summary of the config file."
+      - type: diff
+        ref: skills/pr-story/reference.md#L7-L11
+        caption: "reference.md's file-location section, pointing at the config section."
+
+  - name: "Migrate this repo's own story to multi-file mode"
+    description: |
+      Proving it rather than just describing it: this repo now keeps its
+      own story under `.pr-story/`, named after the branch that wrote it -
+      this exact file. The single root `.pr-story.yml` this project used
+      through PRs #1-#3 is gone; its content lives on in git history at
+      whichever commit last touched it, same as any other renamed file.
+    files:
+      - .pr-story.config.yml
+      - .pr-story.yml
+      - .pr-story/claude-pr-review-storytelling-mxykkt.yml
+      - dist-plugin/cli.mjs
+    story:
+      - type: text
+        content: |
+          The config this repo picked - multi-file, default directory.
+      - type: diff
+        ref: .pr-story.config.yml
+      - type: text
+        content: |
+          And this file itself: `git mv .pr-story.yml
+          .pr-story/claude-pr-review-storytelling-mxykkt.yml`, then
+          rewritten to tell only this PR's own story - the same scoping
+          discipline every PR since #2 has followed, just in its new home.
+          Git saw the rewrite as too different from the old content to
+          detect as a rename, so the old root file shows up as a plain
+          deletion - referenced here as one whole file rather than walked
+          through line by line, since there's nothing left in it to narrate.
+      - type: diff
+        ref: .pr-story.yml
+        caption: "The old root file, gone - its history lives on at whichever commit last touched it."
+      - type: diff
+        ref: .pr-story/claude-pr-review-storytelling-mxykkt.yml
+      - type: text
+        content: |
+          `dist-plugin/cli.mjs` is the bundled, dependency-free CLI this
+          plugin ships - generated by the build from everything above,
+          never hand-edited. Referenced here as one file rather than
+          narrated hunk by hunk, same as any other build artifact.
+      - type: diff
+        ref: dist-plugin/cli.mjs
+        caption: "Regenerated bundle - same source changes, one file."

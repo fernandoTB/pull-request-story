@@ -76,9 +76,15 @@ isn't covered by some step - no code slips through unreviewed, and it
 doubles as a check a coding agent can run on its own story before calling
 a PR done.
 
-All four default to `.pr-story.yml` at the repo root; `base`/`head` come
+All default to `.pr-story.yml` at the repo root; `base`/`head` come
 from the file itself (see "Choosing base" in `docs/FORMAT.md`). Pass
 `--base`/`--head` only to explicitly override the file for one run.
+
+Prefer one committed story file per branch/PR instead of reusing a single
+root file? `prstory config set-mode multi-file` switches the whole repo
+over to `.pr-story/<branch-slug>.yml` (or `set-mode local` to keep a single
+file but stop committing it at all - it's added to `.gitignore`
+automatically). See "Where the story file lives" in `docs/FORMAT.md`.
 
 Try it on this repo itself:
 
@@ -100,6 +106,9 @@ node bin/prstory tell
 - **`src/cli.mjs` / `src/server.mjs`** — the `prstory` CLI: `validate`,
   `resolve` (print the resolved JSON), `tell` (resolve + serve the UI), and
   `init` (scaffold a starter file).
+- **`src/config.mjs`** — `.pr-story.config.yml`: a repo-wide, always-committed
+  choice between the default single root file and one committed file per
+  branch/PR in a dedicated directory (`prstory config set-mode ...`).
 - **`src/github-auth.mjs` / `src/github-api.mjs`** — resolve a GitHub token
   from whatever the machine already has (`gh auth token`, git's credential
   store, then `GH_TOKEN`/`GITHUB_TOKEN`), post a line/range comment to a

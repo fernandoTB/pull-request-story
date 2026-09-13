@@ -1,9 +1,10 @@
 # The `.pr-story.yml` format
 
-A PR story file is checked into the branch it describes, **always at the
-repo root as `.pr-story.yml`**, and tells reviewers the *story* of the
-change: an ordered list of steps, each one a chapter that explains a
-reasoning and points at the exact code that backs it up.
+A PR story file tells reviewers the *story* of a change: an ordered list of
+steps, each one a chapter that explains a reasoning and points at the exact
+code that backs it up. By default it lives at the repo root as
+`.pr-story.yml`; see "Where the story file lives" below for the repo-wide
+choice between that and one file per branch/PR.
 
 The file never embeds a copy of the diff. It only holds **references**
 (`path#L10-L20`); the `prstory` CLI resolves those references against real
@@ -172,7 +173,7 @@ step needed.
 ## Using the CLI
 
 ```sh
-prstory init                 # scaffold .pr-story.yml at the repo root
+prstory init                 # scaffold a starter story file
 prstory validate             # schema-check it
 prstory validate --coverage  # + fail if any changed line has no step
 prstory resolve              # print the fully resolved story as JSON
@@ -190,9 +191,40 @@ reach for it on a file that's part of the change but not worth narrating
 line-by-line (a regenerated lockfile, a build artifact) instead of leaving
 it out and failing the check.
 
-All four default to `.pr-story.yml` at the repo root and need no other
-arguments; pass a path explicitly (`prstory validate some/other.yml`) only
-when deviating from that convention.
+All five need no other arguments in the common case; pass a path
+explicitly (`prstory validate some/other.yml`) to target a specific file
+instead of whatever the default for this repo resolves to.
+
+## Where the story file lives
+
+By default: `.pr-story.yml` at the repo root, one file reused across
+whatever PR is current. A repo can opt into a different convention with
+`.pr-story.config.yml` (repo root, always committed, decided once with
+`prstory config set-mode ...`):
+
+```yaml
+version: 1
+mode: multi-file       # or: local
+storiesDir: .pr-story  # multi-file only; defaults to ".pr-story"
+```
+
+| `mode`       | Where the story lives                                                          | Committed? |
+|--------------|----------------------------------------------------------------------------------|------------|
+| `local`      | `.pr-story.yml` at the repo root - the default, unchanged behavior.             | No - `prstory config set-mode local` adds it to `.gitignore` for you. |
+| `multi-file` | `<storiesDir>/<branch-slug>.yml` - one file per branch (one per PR, in practice), kept as project history. | Yes. |
+
+```sh
+prstory config set-mode multi-file [--stories-dir <dir>]
+prstory config set-mode local
+```
+
+Every command's optional `[file]` argument still overrides all of this -
+useful for looking at a different branch's story (in multi-file mode)
+without checking it out: `prstory tell .pr-story/other-branch.yml`. With no
+argument, multi-file mode resolves to the **currently checked-out
+branch**'s file; everything else (including no config at all) resolves to
+`.pr-story.yml` at the root, so this is purely additive - a repo that never
+runs `prstory config` behaves exactly as before.
 
 ## Using it as a coding-agent plugin
 

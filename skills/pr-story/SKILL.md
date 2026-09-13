@@ -18,6 +18,21 @@ Two situations trigger this skill:
 Do this **before** handing the branch back / opening the PR, once the
 implementation itself is done:
 
+0. Check whether `.pr-story.config.yml` exists at the repo root. **If it
+   doesn't**, this repo hasn't decided yet where story files live, and
+   that's a call for the human, not you - ask them:
+   - **multi-file**: one committed file per branch/PR in a dedicated
+     directory (default `.pr-story/`) - kept as project history.
+   - **local**: a single `.pr-story.yml` at the repo root, gitignored,
+     never committed - regenerated fresh for whatever PR is current.
+
+   Once they answer, run `prstory config set-mode multi-file` (optionally
+   `--stories-dir <dir>`) or `prstory config set-mode local` to persist
+   it - this writes the config file (and, for `local`, adds the story file
+   to `.gitignore` automatically) so every future session in this repo
+   sees the same convention without asking again. **If the config file
+   already exists**, skip this - just proceed, `prstory init` and the
+   other commands already know where to read/write from it.
 1. Look at what actually changed: `git diff <base>...HEAD --stat` and
    `git log <base>...HEAD --oneline`. Group the changed files into the
    logical steps the change actually happened in - not one step per file,
@@ -26,8 +41,10 @@ implementation itself is done:
 2. Determine `base`: the branch/commit this PR should be diffed against
    (see "Choosing base" in `reference.md` if it's not obvious - e.g. no
    default branch exists yet).
-3. Write `.pr-story.yml` at the **repo root** (create it if missing, update
-   it in place if one already exists and the change extended it). Read
+3. Write the story file - `prstory init` (with no argument) creates it in
+   the right place for this repo's mode (config-driven; the repo root by
+   default) and prints the path; update it in place on later steps or a
+   later session instead of re-running `init`. Read
    `${CLAUDE_SKILL_DIR}/reference.md` for the exact field-by-field format
    before writing it the first time in a session - do not guess the shape.
 4. Every `diff` item's `ref` must point at lines that exist right now -
@@ -52,7 +69,12 @@ implementation itself is done:
    interactive review UI (a stepper) locally - that command is for a human
    to run, not something to execute on their behalf unless asked.
 
-## 2. Reviewing - a PR/branch already has a `.pr-story.yml`
+## 2. Reviewing - a PR/branch already has a story file
+
+If `.pr-story.config.yml` says `multi-file`, the branch's own story is at
+`<storiesDir>/<branch-slug>.yml` - `prstory resolve`/`tell` find it
+automatically as long as that branch is checked out; otherwise it's
+`.pr-story.yml` at the repo root, same either way from here on:
 
 1. Run `prstory resolve` to get the structured walkthrough (steps, their
    reasoning, and the real resolved diffs) instead of reading a raw
@@ -66,8 +88,11 @@ implementation itself is done:
 
 ## Format essentials (full detail in `reference.md`)
 
-- File lives at `.pr-story.yml`, repo root, always - `prstory` commands
-  take no filename argument by default.
+- By default the file lives at `.pr-story.yml`, repo root - `prstory`
+  commands take no filename argument. A repo's `.pr-story.config.yml` can
+  change this to one file per branch/PR in a dedicated directory instead
+  (see step 0 above and "Config file" in `reference.md`); either way,
+  commands with no argument still find the right file on their own.
 - `base` is **required** in the file (not a CLI flag) - that's what lets
   `prstory tell` / `prstory resolve` run with zero arguments. `head`
   defaults to `HEAD`.
