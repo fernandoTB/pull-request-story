@@ -35,13 +35,19 @@ implementation itself is done:
    earlier in the conversation.
 5. Verify before finishing - never skip this:
    ```sh
-   prstory validate          # schema-valid?
-   prstory resolve           # every ref actually resolves against git?
+   prstory validate                # schema-valid?
+   prstory validate --coverage     # does every changed line have a step?
+   prstory resolve                 # every ref actually resolves against git?
    ```
-   `resolve` prints the full resolved JSON; check that no `diff` item came
-   back with `"kind": "empty"` or an empty `hunks` array - that means a ref
-   is wrong (wrong path, stale line range, or `base`/`head` don't cover the
-   change) and needs fixing before the story is done.
+   `--coverage` diffs the real `base...head` and fails if any changed line
+   isn't referenced by some step's `diff` item - it's the check for "did I
+   forget a file/chunk" or "is this leftover junk that shouldn't be in the
+   PR at all". Fix by either adding a step that covers what it lists, or
+   removing the change if it doesn't belong. `resolve` prints the full
+   resolved JSON; check that no `diff` item came back with `"kind":
+   "empty"` or an empty `hunks` array - that means a ref is wrong (wrong
+   path, stale line range, or `base`/`head` don't cover the change) and
+   needs fixing before the story is done.
 6. Tell the user the story is ready and that `prstory tell` opens the
    interactive review UI (a stepper) locally - that command is for a human
    to run, not something to execute on their behalf unless asked.

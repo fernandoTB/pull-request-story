@@ -1,5 +1,5 @@
 import parseDiff from "parse-diff";
-import { diffForFile, showFileAtRef } from "./git.mjs";
+import { diffForFile, diffWholeRepo, showFileAtRef } from "./git.mjs";
 
 const REF_RE = /^(.+?)(?:#L(\d+)(?:-L?(\d+))?)?$/;
 
@@ -26,7 +26,7 @@ function overlaps(range, newStart, newLines) {
   return range.start <= hunkEnd && range.end >= newStart;
 }
 
-function toHunk(chunk) {
+export function toHunk(chunk) {
   return {
     header: chunk.content,
     oldStart: chunk.oldStart,
@@ -47,7 +47,7 @@ function toHunk(chunk) {
  * has no new-file line of its own, so it inherits the position of the next
  * kept line ("this happens right before new line X"); trailing deletions
  * with nothing after them anchor just past the previous line instead. */
-function assignPositions(lines) {
+export function assignPositions(lines) {
   const positions = new Array(lines.length);
   let next = null;
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -165,6 +165,67 @@ export async function resolveDiffItem(repoRoot, base, head, item) {
   }
 
   return { ...base_, kind: "empty", file: { from: filePath, to: filePath }, hunks: [] };
+}
+
+function groupIntoRanges(sortedNumbers) {
+  const ranges = [];
+  for (const n of sortedNumbers) {
+    const last = ranges[ranges.length - 1];
+    if (last && n === last.end + 1) last.end = n;
+    else ranges.push({ start: n, end: n });
+  }
+  return ranges;
+}
+
+/** Compare every actually-changed line in base...head against every `diff`
+ * item's ref across the whole story, to catch code the story never
+ * mentions at all - a forgotten file, or a leftover chunk within a file
+ * that IS referenced elsewhere for something else. Only real changes (add
+ * or del lines) count; context lines shown incidentally around a hunk
+ * don't need their own mention. A bare `path` ref (no range) covers that
+ * file's entire diff. Returns `{ uncovered: [{ path, ranges }] }` -
+ * empty when the story accounts for the whole diff. */
+export async function computeDiffCoverage(repoRoot, base, head, story) {
+  const coverage = new Map(); // path -> { wholeFile: bool, ranges: [{start,end}] }
+  for (const step of story.steps) {
+    for (const item of step.story) {
+      if (item.type !== "diff") continue;
+      const { path: itemPath, range } = parseRef(item.ref);
+      const entry = coverage.get(itemPath) ?? { wholeFile: false, ranges: [] };
+      if (!range) entry.wholeFile = true;
+      else entry.ranges.push(range);
+      coverage.set(itemPath, entry);
+    }
+  }
+
+  const raw = await diffWholeRepo(repoRoot, base, head);
+  if (!raw || !raw.trim()) return { uncovered: [] };
+
+  const uncovered = [];
+  for (const file of parseDiff(raw)) {
+    const filePath = file.to && file.to !== "/dev/null" ? file.to : file.from;
+    const entry = coverage.get(filePath);
+    if (entry?.wholeFile) continue;
+
+    const changedPositions = [];
+    for (const chunk of file.chunks) {
+      const hunk = toHunk(chunk);
+      const positions = assignPositions(hunk.lines);
+      hunk.lines.forEach((line, i) => {
+        if (line.type === "add" || line.type === "del") changedPositions.push(positions[i]);
+      });
+    }
+    if (!changedPositions.length) continue;
+
+    const uncoveredPositions = changedPositions.filter(
+      (pos) => !entry || !entry.ranges.some((r) => pos >= r.start && pos <= r.end)
+    );
+    if (uncoveredPositions.length) {
+      const sorted = [...new Set(uncoveredPositions)].sort((a, b) => a - b);
+      uncovered.push({ path: filePath, ranges: groupIntoRanges(sorted) });
+    }
+  }
+  return { uncovered };
 }
 
 /** Resolve an entire parsed story document into a plain JSON tree the UI
