@@ -36900,6 +36900,19 @@ var story_schema_default = {
       type: "string",
       description: "Git ref/commit-ish for the tip of the PR branch. Defaults to HEAD, which is almost always correct."
     },
+    github: {
+      type: "object",
+      additionalProperties: false,
+      required: ["pr"],
+      description: "Optional: enables posting comments from the UI straight to a real GitHub pull request, anchored to the exact line/range selected. owner/repo are derived from the git remote, not configured here.",
+      properties: {
+        pr: {
+          type: "integer",
+          minimum: 1,
+          description: "Number of the open GitHub pull request to comment on."
+        }
+      }
+    },
     steps: {
       type: "array",
       minItems: 1,
@@ -37039,6 +37052,22 @@ async function showFileAtRef(repoRoot, ref, filePath) {
     return null;
   }
 }
+function parseGitHubRemote(url) {
+  const trimmed = url.trim();
+  const scpLike = trimmed.match(/^[^@\s]+@[^:/\s]+:([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (scpLike) return { owner: scpLike[1], repo: scpLike[2] };
+  const urlLike = trimmed.match(/^\w+:\/\/[^/\s]+\/([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (urlLike) return { owner: urlLike[1], repo: urlLike[2] };
+  return null;
+}
+async function getRemoteOwnerRepo(repoRoot, remoteName = "origin") {
+  try {
+    const url = await git(repoRoot, ["remote", "get-url", remoteName]);
+    return parseGitHubRemote(url);
+  } catch {
+    return null;
+  }
+}
 async function detectDefaultBase(repoRoot) {
   try {
     const out = await git(repoRoot, [
@@ -37093,6 +37122,40 @@ function toHunk(chunk) {
     }))
   };
 }
+function assignPositions(lines) {
+  const positions = new Array(lines.length);
+  let next = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].newLine != null) next = lines[i].newLine;
+    positions[i] = lines[i].newLine ?? next;
+  }
+  let prev = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (positions[i] == null) positions[i] = prev != null ? prev + 1 : 0;
+    prev = positions[i];
+  }
+  return positions;
+}
+function trimHunkToRange(hunk, range) {
+  if (!range) return hunk;
+  const positions = assignPositions(hunk.lines);
+  const lines = hunk.lines.filter((_, i) => positions[i] >= range.start && positions[i] <= range.end);
+  if (!lines.length) return null;
+  const newLineNos = lines.map((l) => l.newLine).filter((n) => n != null);
+  const oldLineNos = lines.map((l) => l.oldLine).filter((n) => n != null);
+  const newStart = newLineNos.length ? Math.min(...newLineNos) : hunk.newStart;
+  const newLines = newLineNos.length ? Math.max(...newLineNos) - newStart + 1 : 0;
+  const oldStart = oldLineNos.length ? Math.min(...oldLineNos) : hunk.oldStart;
+  const oldLines = oldLineNos.length ? Math.max(...oldLineNos) - oldStart + 1 : 0;
+  return {
+    header: `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`,
+    oldStart,
+    oldLines,
+    newStart,
+    newLines,
+    lines
+  };
+}
 async function resolveDiffItem(repoRoot, base, head, item) {
   const { path: filePath, range } = parseRef(item.ref);
   const base_ = { ref: item.ref, caption: item.caption ?? null, path: filePath, range };
@@ -37101,7 +37164,7 @@ async function resolveDiffItem(repoRoot, base, head, item) {
     const files = (0, import_parse_diff.default)(rawDiff);
     const file = files[0];
     if (file) {
-      const hunks = file.chunks.filter((c) => overlaps(range, c.newStart, c.newLines)).map(toHunk);
+      const hunks = file.chunks.filter((c) => overlaps(range, c.newStart, c.newLines)).map(toHunk).map((h) => trimHunkToRange(h, range)).filter(Boolean);
       if (hunks.length) {
         return {
           ...base_,
@@ -37178,15 +37241,175 @@ async function resolveStory(repoRoot, story, { base, head }) {
   };
 }
 
+// src/github-auth.mjs
+import { execFileSync } from "node:child_process";
+function tryGhCliToken() {
+  try {
+    const token = execFileSync("gh", ["auth", "token"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+function tryGitCredential(host) {
+  try {
+    const input = `protocol=https
+host=${host}
+
+`;
+    const out = execFileSync("git", ["credential", "fill"], {
+      input,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "ignore"]
+    });
+    const match = out.match(/^password=(.*)$/m);
+    return match ? match[1].trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+function tryEnvToken() {
+  return process.env.GH_TOKEN || process.env.GITHUB_TOKEN || null;
+}
+function resolveGitHubToken(host = "github.com") {
+  return tryGhCliToken() ?? tryGitCredential(host) ?? tryEnvToken() ?? null;
+}
+
 // src/server.mjs
 var import_express = __toESM(require_express2(), 1);
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+
+// src/github-api.mjs
+var API_BASE = process.env.PRSTORY_GITHUB_API_BASE || "https://api.github.com";
+var GRAPHQL_BASE = process.env.PRSTORY_GITHUB_GRAPHQL_BASE || "https://api.github.com/graphql";
+async function ghFetch(token, pathOrUrl, options = {}) {
+  const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${API_BASE}${pathOrUrl}`;
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...options.body ? { "Content-Type": "application/json" } : {},
+      ...options.headers
+    }
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const message = data?.message || res.statusText;
+    throw new Error(
+      `GitHub API ${options.method ?? "GET"} ${pathOrUrl} failed (${res.status}): ${message}`
+    );
+  }
+  return { data, link: res.headers.get("link") };
+}
+async function getPullRequest(token, owner, repo, pr) {
+  const { data } = await ghFetch(token, `/repos/${owner}/${repo}/pulls/${pr}`);
+  return data;
+}
+async function createReviewComment(token, owner, repo, pr, payload) {
+  const { data } = await ghFetch(token, `/repos/${owner}/${repo}/pulls/${pr}/comments`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data;
+}
+function nextPageUrl(linkHeader) {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    const m = part.match(/<([^>]+)>;\s*rel="next"/);
+    if (m) return m[1];
+  }
+  return null;
+}
+async function listReviewComments(token, owner, repo, pr) {
+  let comments = [];
+  let url = `/repos/${owner}/${repo}/pulls/${pr}/comments?per_page=100`;
+  while (url) {
+    const { data, link } = await ghFetch(token, url);
+    comments = comments.concat(data);
+    url = nextPageUrl(link);
+  }
+  return comments;
+}
+async function ghGraphQL(token, query, variables) {
+  const res = await fetch(GRAPHQL_BASE, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ query, variables })
+  });
+  const json2 = await res.json();
+  if (!res.ok || json2.errors) {
+    const message = json2.errors?.map((e) => e.message).join("; ") || res.statusText;
+    throw new Error(`GitHub GraphQL request failed (${res.status}): ${message}`);
+  }
+  return json2.data;
+}
+var RESOLVED_THREADS_QUERY = `
+  query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $pr) {
+        reviewThreads(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            isResolved
+            comments(first: 100) {
+              nodes { databaseId }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+async function getResolvedCommentIds(token, owner, repo, pr) {
+  const resolved = /* @__PURE__ */ new Set();
+  let cursor = null;
+  for (; ; ) {
+    const data = await ghGraphQL(token, RESOLVED_THREADS_QUERY, { owner, repo, pr, cursor });
+    const threads = data.repository.pullRequest.reviewThreads;
+    for (const thread of threads.nodes) {
+      if (!thread.isResolved) continue;
+      for (const c of thread.comments.nodes) resolved.add(c.databaseId);
+    }
+    if (!threads.pageInfo.hasNextPage) break;
+    cursor = threads.pageInfo.endCursor;
+  }
+  return resolved;
+}
+
+// src/server.mjs
 var __dirname = path.dirname(fileURLToPath(import.meta.url));
 var DIST_DIR = path.join(__dirname, "..", "web", "dist");
-async function startServer({ resolved, reload, port = 4173 }) {
+function normalizeComment(c, resolvedIds = /* @__PURE__ */ new Set()) {
+  return {
+    id: c.id,
+    inReplyToId: c.in_reply_to_id ?? null,
+    path: c.path,
+    line: c.line ?? c.original_line ?? null,
+    side: c.side,
+    startLine: c.start_line ?? c.original_start_line ?? null,
+    startSide: c.start_side ?? null,
+    outdated: c.line == null,
+    resolved: resolvedIds.has(c.id),
+    body: c.body,
+    user: c.user?.login ?? "unknown",
+    htmlUrl: c.html_url,
+    createdAt: c.created_at
+  };
+}
+async function startServer({ resolved, reload, port = 4173, github = null }) {
   const app = (0, import_express.default)();
+  app.use(import_express.default.json());
   let current = resolved;
   app.get("/api/story", (_req, res) => {
     res.json(current);
@@ -37197,6 +37420,57 @@ async function startServer({ resolved, reload, port = 4173 }) {
       res.json(current);
     } catch (err) {
       next(err);
+    }
+  });
+  app.get("/api/github-status", (_req, res) => {
+    if (!github) {
+      return res.json({ enabled: false, reason: "GitHub commenting is not configured." });
+    }
+    const { token, ...status } = github;
+    res.json(status);
+  });
+  app.get("/api/comments", async (_req, res) => {
+    if (!github?.enabled) return res.json([]);
+    try {
+      const [comments, resolvedIds] = await Promise.all([
+        listReviewComments(github.token, github.owner, github.repo, github.pr),
+        // Thread resolution is GraphQL-only; degrade to "none resolved"
+        // rather than failing the whole comments list if it errors (some
+        // token setups have REST but not GraphQL access).
+        getResolvedCommentIds(github.token, github.owner, github.repo, github.pr).catch(
+          () => /* @__PURE__ */ new Set()
+        )
+      ]);
+      res.json(comments.map((c) => normalizeComment(c, resolvedIds)));
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+  });
+  app.post("/api/comment", async (req, res) => {
+    if (!github?.enabled) {
+      return res.status(400).json({ error: github?.reason ?? "GitHub commenting is not configured." });
+    }
+    const { path: filePath, line, side, startLine, startSide, body } = req.body ?? {};
+    if (!filePath || !line || !side || !body?.trim()) {
+      return res.status(400).json({ error: "Missing path, line, side, or body." });
+    }
+    try {
+      const pull = await getPullRequest(github.token, github.owner, github.repo, github.pr);
+      const payload = { body, commit_id: pull.head.sha, path: filePath, line, side };
+      if (startLine && startLine !== line) {
+        payload.start_line = startLine;
+        payload.start_side = startSide ?? side;
+      }
+      const comment = await createReviewComment(
+        github.token,
+        github.owner,
+        github.repo,
+        github.pr,
+        payload
+      );
+      res.json(normalizeComment(comment));
+    } catch (err) {
+      res.status(502).json({ error: err.message });
     }
   });
   if (existsSync(DIST_DIR)) {
@@ -37212,7 +37486,7 @@ async function startServer({ resolved, reload, port = 4173 }) {
     });
   }
   return new Promise((resolve) => {
-    const server = app.listen(port, () => resolve({ port, server }));
+    const server = app.listen(port, "127.0.0.1", () => resolve({ port, server }));
   });
 }
 
@@ -37222,7 +37496,7 @@ var program2 = new Command();
 program2.name("prstory").description(
   `Tell the story of a pull request: an ordered, reviewable narrative on top of the git protocol.
 By convention the story lives at the repo root as ${STORY_FILENAME}, and carries its own base/head - so most commands take no arguments at all.`
-).version("0.2.0");
+).version("0.3.0");
 async function resolveStoryPath(file, cwd) {
   if (file) return path2.resolve(cwd, file);
   const repoRoot = await resolveRepoRoot(cwd);
@@ -37266,6 +37540,27 @@ withCommonOptions(program2.command("resolve")).description("resolve every diff r
   const resolved = await resolveStory(repoRoot, story, { base, head });
   process.stdout.write(JSON.stringify(resolved, null, opts.pretty ? 2 : 0) + "\n");
 });
+async function resolveGitHubTarget(story, repoRoot) {
+  const pr = story.github?.pr;
+  if (!pr) {
+    return {
+      enabled: false,
+      reason: "add `github: { pr: <number> }` to the story file to enable commenting from the UI."
+    };
+  }
+  const remote = await getRemoteOwnerRepo(repoRoot);
+  if (!remote) {
+    return { enabled: false, reason: "no github.com remote found (checked `origin`)." };
+  }
+  const token = resolveGitHubToken();
+  if (!token) {
+    return {
+      enabled: false,
+      reason: "no GitHub token found (tried `gh auth token`, git's credential store, and GH_TOKEN/GITHUB_TOKEN) - run `gh auth login`."
+    };
+  }
+  return { enabled: true, token, owner: remote.owner, repo: remote.repo, pr };
+}
 withCommonOptions(program2.command("tell")).description("resolve the story and serve the storytelling review UI locally").option("-p, --port <port>", "port to listen on", "4173").action(async (file, opts) => {
   const storyPath = await resolveStoryPath(file, opts.cwd);
   const story = loadStoryFile(storyPath);
@@ -37273,6 +37568,10 @@ withCommonOptions(program2.command("tell")).description("resolve the story and s
   const { base, head } = resolveBaseHead(story, opts);
   console.log(`Resolving "${story.title ?? storyPath}" (${base}...${head})...`);
   const resolved = await resolveStory(repoRoot, story, { base, head });
+  const github = await resolveGitHubTarget(story, repoRoot);
+  console.log(
+    github.enabled ? `GitHub comments: enabled -> ${github.owner}/${github.repo}#${github.pr}` : `GitHub comments: disabled (${github.reason})`
+  );
   const server = await startServer({
     resolved,
     reload: async () => {
@@ -37280,7 +37579,8 @@ withCommonOptions(program2.command("tell")).description("resolve the story and s
       const freshRefs = resolveBaseHead(fresh, opts);
       return resolveStory(repoRoot, fresh, freshRefs);
     },
-    port: Number(opts.port)
+    port: Number(opts.port),
+    github
   });
   console.log(`
 PR story running at http://localhost:${server.port}

@@ -27,6 +27,13 @@ See [`docs/FORMAT.md`](docs/FORMAT.md) for the full file format, and
 [`.pr-story.yml`](.pr-story.yml) in this repo for a real example — it tells
 the story of this project's own implementation.
 
+Add `github: { pr: <number> }` to the story and reviewers can select a
+line/range right in the UI and post a comment that lands on that exact spot
+on the real GitHub pull request — no new token to create, it reuses
+whatever GitHub credentials are already on the machine (`gh auth token`,
+git's credential store, or `GH_TOKEN`/`GITHUB_TOKEN`). Every comment
+already on the PR shows up inline too, so it's not just write-only.
+
 ## Install
 
 **As an npm package**, for local/CI use:
@@ -81,11 +88,18 @@ node bin/prstory tell
 - **`src/git.mjs` / `src/resolver.mjs`** — resolve every `diff` reference by
   running `git diff base...head` for that file (argv-only, never a shell
   string, so refs from a story file can't be interpreted as shell syntax),
-  keeping only the hunks that overlap the requested line range, and falling
+  trimming it down to exactly the requested line range (not the whole hunk
+  it falls in - a new file's hunk can be the entire file), and falling
   back to a plain unchanged read when a range has no associated change.
 - **`src/cli.mjs` / `src/server.mjs`** — the `prstory` CLI: `validate`,
   `resolve` (print the resolved JSON), `tell` (resolve + serve the UI), and
   `init` (scaffold a starter file).
+- **`src/github-auth.mjs` / `src/github-api.mjs`** — resolve a GitHub token
+  from whatever the machine already has (`gh auth token`, git's credential
+  store, then `GH_TOKEN`/`GITHUB_TOKEN`), post a line/range comment to a
+  real PR, and fetch every existing comment on it, via GitHub's own
+  review-comment API. The token never reaches the
+  browser - only the local Express server holds it.
 - **`web/`** — a React/Vite app: a stepper down the left tracks review
   progress per step (persisted in `localStorage`), and the main panel
   renders each step's description followed by its interleaved

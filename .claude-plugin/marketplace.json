@@ -9,7 +9,7 @@
       "source": "./",
       "description": "Storytelling code review: organize a pull request into narrated steps with real diff references.",
       "displayName": "PR Story",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "author": { "name": "fernandoTB" },
       "category": "code-review",
       "tags": ["pull-request", "code-review", "git", "diff"]

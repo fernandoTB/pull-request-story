@@ -11,6 +11,9 @@ export default function StepPanel({
   onToggleReviewed,
   viewedDiffs,
   onToggleDiffViewed,
+  githubStatus,
+  comments,
+  onCommentPosted,
   onPrev,
   onNext,
 }) {
@@ -56,6 +59,9 @@ export default function StepPanel({
               item={item}
               isViewed={viewedDiffs.has(`${index}:${i}`)}
               onToggleViewed={() => onToggleDiffViewed(`${index}:${i}`)}
+              githubStatus={githubStatus}
+              comments={comments}
+              onCommentPosted={onCommentPosted}
             />
           </div>
         )

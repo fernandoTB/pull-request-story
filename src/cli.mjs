@@ -4,7 +4,8 @@ import path from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
 import { loadStoryFile, StoryValidationError } from "./schema.mjs";
 import { resolveStory } from "./resolver.mjs";
-import { resolveRepoRoot, detectDefaultBase } from "./git.mjs";
+import { resolveRepoRoot, detectDefaultBase, getRemoteOwnerRepo } from "./git.mjs";
+import { resolveGitHubToken } from "./github-auth.mjs";
 import { startServer } from "./server.mjs";
 
 const STORY_FILENAME = ".pr-story.yml";
@@ -17,7 +18,7 @@ program
     "Tell the story of a pull request: an ordered, reviewable narrative on top of the git protocol.\n" +
       `By convention the story lives at the repo root as ${STORY_FILENAME}, and carries its own base/head - so most commands take no arguments at all.`
   )
-  .version("0.2.0");
+  .version("0.3.0");
 
 /** Resolve the story file path: an explicit [file] argument wins; otherwise
  * it's <repo-root>/.pr-story.yml, found from wherever the command is run. */
@@ -83,6 +84,32 @@ withCommonOptions(program.command("resolve"))
     process.stdout.write(JSON.stringify(resolved, null, opts.pretty ? 2 : 0) + "\n");
   });
 
+/** Resolve whether the UI can post comments straight to a real GitHub PR:
+ * needs `github.pr` in the story, a github.com remote to get owner/repo
+ * from, and a token found without asking the user to create one. */
+async function resolveGitHubTarget(story, repoRoot) {
+  const pr = story.github?.pr;
+  if (!pr) {
+    return {
+      enabled: false,
+      reason: "add `github: { pr: <number> }` to the story file to enable commenting from the UI.",
+    };
+  }
+  const remote = await getRemoteOwnerRepo(repoRoot);
+  if (!remote) {
+    return { enabled: false, reason: "no github.com remote found (checked `origin`)." };
+  }
+  const token = resolveGitHubToken();
+  if (!token) {
+    return {
+      enabled: false,
+      reason:
+        "no GitHub token found (tried `gh auth token`, git's credential store, and GH_TOKEN/GITHUB_TOKEN) - run `gh auth login`.",
+    };
+  }
+  return { enabled: true, token, owner: remote.owner, repo: remote.repo, pr };
+}
+
 withCommonOptions(program.command("tell"))
   .description("resolve the story and serve the storytelling review UI locally")
   .option("-p, --port <port>", "port to listen on", "4173")
@@ -93,6 +120,12 @@ withCommonOptions(program.command("tell"))
     const { base, head } = resolveBaseHead(story, opts);
     console.log(`Resolving "${story.title ?? storyPath}" (${base}...${head})...`);
     const resolved = await resolveStory(repoRoot, story, { base, head });
+    const github = await resolveGitHubTarget(story, repoRoot);
+    console.log(
+      github.enabled
+        ? `GitHub comments: enabled -> ${github.owner}/${github.repo}#${github.pr}`
+        : `GitHub comments: disabled (${github.reason})`
+    );
     const server = await startServer({
       resolved,
       reload: async () => {
@@ -101,6 +134,7 @@ withCommonOptions(program.command("tell"))
         return resolveStory(repoRoot, fresh, freshRefs);
       },
       port: Number(opts.port),
+      github,
     });
     console.log(`\nPR story running at http://localhost:${server.port}\n`);
   });

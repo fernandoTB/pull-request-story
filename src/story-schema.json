@@ -24,6 +24,19 @@
       "type": "string",
       "description": "Git ref/commit-ish for the tip of the PR branch. Defaults to HEAD, which is almost always correct."
     },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pr"],
+      "description": "Optional: enables posting comments from the UI straight to a real GitHub pull request, anchored to the exact line/range selected. owner/repo are derived from the git remote, not configured here.",
+      "properties": {
+        "pr": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of the open GitHub pull request to comment on."
+        }
+      }
+    },
     "steps": {
       "type": "array",
       "minItems": 1,

@@ -25,6 +25,8 @@ version: 1
 title: "Switch persistence to the repository pattern"
 base: main   # required - see "Choosing base" below
 head: HEAD   # optional, defaults to HEAD
+github:      # optional - see "Commenting straight to GitHub" below
+  pr: 42
 steps:
   - name: ...
     description: ...
@@ -38,6 +40,7 @@ steps:
 | title   | no       | Title for the whole story, shown at the top of the UI.                          |
 | base    | **yes**  | Ref to diff against. Lives in the file, not on the command line - see below.    |
 | head    | no       | Tip of the change. Defaults to `HEAD`, which is correct almost always.          |
+| github  | no       | `{ pr: <number> }` - enables commenting on lines from the UI. See below.        |
 | steps   | yes      | Ordered array of steps (see below). Order is the narrative order.               |
 
 ### Choosing `base`
@@ -118,8 +121,9 @@ version** of the file. The resolver:
 1. Runs `git diff base...head -- <path>` (three-dot: what `head` changed
    since it diverged from `base` - the same comparison GitHub uses for PR
    diffs) and parses the unified diff.
-2. Keeps only the hunks that overlap the requested line range (or the whole
-   diff, if no range was given).
+2. Trims the diff down to exactly the requested line range (not just
+   whichever hunks happen to overlap it - a whole-new-file hunk can be
+   hundreds of lines) - or shows the whole diff, if no range was given.
 3. If the requested range has no associated change (e.g. it references
    unchanged context, or a file with no diff at all — useful for pointing at
    pre-existing code for contrast), it falls back to showing that slice of
@@ -128,6 +132,42 @@ version** of the file. The resolver:
 Because resolution happens against the live git history, the story file
 stays valid as the branch is amended, rebased, or force-pushed — as long as
 the referenced lines still exist near where they used to.
+
+## Commenting straight to GitHub
+
+Add `github: { pr: <number> }` and `prstory tell` lets you select a line
+(click, or click-and-drag / shift-click for a range) in any resolved diff
+and post a comment that lands on that exact line of the real GitHub pull
+request - the same
+`create a review comment` API GitHub's own UI uses, so it's not a special
+kind of comment, just a normal one, immediately visible, no draft/submit
+step needed.
+
+- `owner`/`repo` are derived from the `origin` remote - not configured here.
+- Only lines that are actually part of a resolved diff (`kind: "diff"`) can
+  be commented on; a reference that fell back to unchanged context, or that
+  didn't resolve at all, can't - GitHub only accepts positions that exist in
+  the PR's own diff.
+- **No token to create.** The CLI looks for credentials you already have,
+  in order: `gh auth token` (if you've run `gh auth login`), git's own
+  credential store (`git credential fill`, which also picks up `gh`'s own
+  git credential helper), then the `GH_TOKEN`/`GITHUB_TOKEN` env vars. If
+  none are found, commenting is simply disabled - the UI says why, and
+  everything else still works.
+- The comment is posted using whatever account those credentials belong to
+  - same as if that person had commented in the GitHub UI themselves.
+- **Existing comments show up too**, not just new ones: `prstory tell`
+  fetches every review comment already on the PR and renders each inline,
+  right under the line it's anchored to - so a comment you post is visible
+  immediately in the same place, and stays visible (it's not a transient
+  "posted!" toast; it's the same list a page reload re-fetches from
+  GitHub). A comment whose surrounding code has since changed is still
+  shown, tagged "outdated", anchored to where it originally was. A
+  comment whose thread was marked **resolved** on GitHub is tagged too -
+  resolution only exists in GitHub's GraphQL API (not REST), so this
+  makes one extra, minimal GraphQL request per load; if that fails for
+  any reason (some token setups have REST but not GraphQL access) it
+  degrades to showing comments with no resolved tag, rather than failing.
 
 ## Using the CLI
 

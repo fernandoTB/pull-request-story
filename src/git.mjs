@@ -45,6 +45,32 @@ export async function showFileAtRef(repoRoot, ref, filePath) {
   }
 }
 
+/** Parse owner/repo out of a git remote URL - scp-like ssh
+ * (`git@host:owner/repo.git`) or a URL (`https://host/owner/repo`,
+ * `ssh://git@host/owner/repo.git`), .git suffix optional. Deliberately
+ * doesn't require the host to be literally "github.com": SSH host aliases
+ * (`git@github-personal:...`, set up in ~/.ssh/config to juggle multiple
+ * accounts) never contain it, and this tool only ever talks to the GitHub
+ * API afterwards anyway - a remote that isn't really GitHub just fails
+ * there with a clear error instead of being silently misdetected here. */
+function parseGitHubRemote(url) {
+  const trimmed = url.trim();
+  const scpLike = trimmed.match(/^[^@\s]+@[^:/\s]+:([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (scpLike) return { owner: scpLike[1], repo: scpLike[2] };
+  const urlLike = trimmed.match(/^\w+:\/\/[^/\s]+\/([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (urlLike) return { owner: urlLike[1], repo: urlLike[2] };
+  return null;
+}
+
+export async function getRemoteOwnerRepo(repoRoot, remoteName = "origin") {
+  try {
+    const url = await git(repoRoot, ["remote", "get-url", remoteName]);
+    return parseGitHubRemote(url);
+  } catch {
+    return null;
+  }
+}
+
 export async function detectDefaultBase(repoRoot) {
   try {
     const out = await git(repoRoot, [

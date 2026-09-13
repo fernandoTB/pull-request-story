@@ -49,6 +49,8 @@ export default function App() {
   const [viewedDiffs, setViewedDiffs] = useState(new Set());
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [resizingSidebar, setResizingSidebar] = useState(false);
+  const [githubStatus, setGithubStatus] = useState(null);
+  const [comments, setComments] = useState([]);
   const layoutRef = useRef(null);
 
   const fetchStory = useCallback(() => {
@@ -68,6 +70,24 @@ export default function App() {
   useEffect(() => {
     fetchStory();
   }, [fetchStory]);
+
+  useEffect(() => {
+    fetch("/api/github-status")
+      .then((r) => r.json())
+      .then(setGithubStatus)
+      .catch(() => setGithubStatus({ enabled: false, reason: "failed to load status" }));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/comments")
+      .then((r) => r.json())
+      .then((data) => setComments(Array.isArray(data) ? data : []))
+      .catch(() => setComments([]));
+  }, []);
+
+  const addComment = useCallback((comment) => {
+    setComments((prev) => [...prev, comment]);
+  }, []);
 
   useEffect(() => {
     function onKey(e) {
@@ -164,6 +184,16 @@ export default function App() {
           {story.base}...{story.head}
         </span>
         <span className="progress-pill">{progress}</span>
+        {githubStatus && (
+          <span
+            className={`github-status${githubStatus.enabled ? " enabled" : ""}`}
+            title={githubStatus.enabled ? undefined : githubStatus.reason}
+          >
+            {githubStatus.enabled
+              ? `comments → ${githubStatus.owner}/${githubStatus.repo}#${githubStatus.pr}`
+              : "GitHub comments disabled"}
+          </span>
+        )}
       </header>
       <div className={`layout${resizingSidebar ? " sidebar-resizing" : ""}`} ref={layoutRef}>
         <div className="stepper-wrap" style={{ width: sidebarWidth }}>
@@ -189,6 +219,9 @@ export default function App() {
           onToggleReviewed={toggleReviewed}
           viewedDiffs={viewedDiffs}
           onToggleDiffViewed={toggleDiffViewed}
+          githubStatus={githubStatus}
+          comments={comments}
+          onCommentPosted={addComment}
           onPrev={() => setActiveIndex((i) => Math.max(i - 1, 0))}
           onNext={() =>
             setActiveIndex((i) => Math.min(i + 1, story.steps.length - 1))
