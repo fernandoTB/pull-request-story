@@ -451,6 +451,10 @@ body {
   outline-offset: -1px;
 }
 
+.diff-table-dragging {
+  user-select: none;
+}
+
 .diff-line-selected {
   background: var(--accent-bg) !important;
 }

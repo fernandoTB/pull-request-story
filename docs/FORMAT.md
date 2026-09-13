@@ -134,9 +134,10 @@ the referenced lines still exist near where they used to.
 
 ## Commenting straight to GitHub
 
-Add `github: { pr: <number> }` and `prstory tell` lets you select a line (or
-shift-click to select a range) in any resolved diff and post a comment that
-lands on that exact line of the real GitHub pull request - the same
+Add `github: { pr: <number> }` and `prstory tell` lets you select a line
+(click, or click-and-drag / shift-click for a range) in any resolved diff
+and post a comment that lands on that exact line of the real GitHub pull
+request - the same
 `create a review comment` API GitHub's own UI uses, so it's not a special
 kind of comment, just a normal one, immediately visible, no draft/submit
 step needed.

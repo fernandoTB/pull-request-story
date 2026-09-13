@@ -85,6 +85,7 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
   const { path, range, caption, kind, file, hunks } = item;
   const [collapsed, setCollapsed] = useState(false);
   const [selection, setSelection] = useState(null); // { anchor, start, end }
+  const [dragging, setDragging] = useState(false);
   const [postedUrl, setPostedUrl] = useState(null);
 
   // Marking a diff viewed collapses it, mirroring GitHub's "Viewed"
@@ -113,20 +114,47 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
     }
   }
 
-  function handleLineClick(flatIndex, e) {
-    if (!canComment) return;
-    setPostedUrl(null);
-    const clickedSide = sideOf(flatLines[flatIndex]);
-    if (e.shiftKey && selection && sideOf(flatLines[selection.anchor]) === clickedSide) {
-      setSelection({
-        anchor: selection.anchor,
-        start: Math.min(selection.anchor, flatIndex),
-        end: Math.max(selection.anchor, flatIndex),
-      });
-    } else {
-      setSelection({ anchor: flatIndex, start: flatIndex, end: flatIndex });
-    }
+  function extendSelection(anchor, flatIndex) {
+    setSelection((prev) => {
+      const anchorIdx = prev?.anchor ?? anchor;
+      if (sideOf(flatLines[anchorIdx]) !== sideOf(flatLines[flatIndex])) return prev;
+      return {
+        anchor: anchorIdx,
+        start: Math.min(anchorIdx, flatIndex),
+        end: Math.max(anchorIdx, flatIndex),
+      };
+    });
   }
+
+  // Click a line to select it; drag (mousedown + move over other rows) to
+  // select a range, or shift-click a second line to extend without
+  // dragging. Both are constrained to one side (LEFT/RIGHT) at a time,
+  // since that's what GitHub's own multi-line comment API expects.
+  function handleMouseDown(flatIndex, e) {
+    if (!canComment) return;
+    e.preventDefault(); // avoid native text selection while dragging
+    setPostedUrl(null);
+    if (e.shiftKey && selection) {
+      extendSelection(selection.anchor, flatIndex);
+      return;
+    }
+    setSelection({ anchor: flatIndex, start: flatIndex, end: flatIndex });
+    setDragging(true);
+  }
+
+  function handleMouseEnter(flatIndex) {
+    if (!dragging) return;
+    extendSelection(selection?.anchor ?? flatIndex, flatIndex);
+  }
+
+  useEffect(() => {
+    if (!dragging) return;
+    function onMouseUp() {
+      setDragging(false);
+    }
+    window.addEventListener("mouseup", onMouseUp);
+    return () => window.removeEventListener("mouseup", onMouseUp);
+  }, [dragging]);
 
   async function submitComment(body) {
     const startLine = flatLines[selection.start];
@@ -197,7 +225,11 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
               refs.
             </div>
           ) : (
-            <table className={`diff-table${canComment ? " diff-table-commentable" : ""}`}>
+            <table
+              className={`diff-table${canComment ? " diff-table-commentable" : ""}${
+                dragging ? " diff-table-dragging" : ""
+              }`}
+            >
               <tbody>
                 {rows.map((row, i) => {
                   if (row.kind === "hunk-header") {
@@ -221,20 +253,21 @@ export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus
                     <React.Fragment key={i}>
                       <tr
                         className={cls}
-                        onClick={canComment ? (e) => handleLineClick(flatIndex, e) : undefined}
+                        onMouseDown={canComment ? (e) => handleMouseDown(flatIndex, e) : undefined}
+                        onMouseEnter={canComment ? () => handleMouseEnter(flatIndex) : undefined}
                       >
                         <td className="diff-line-num">{line.oldLine ?? ""}</td>
                         <td className="diff-line-num">{line.newLine ?? ""}</td>
                         <td className="diff-line-marker">{MARKERS[line.type] ?? " "}</td>
                         <td className="diff-line-content">{line.content}</td>
                       </tr>
-                      {isSelected && flatIndex === selection.end && !postedUrl && (
+                      {isSelected && flatIndex === selection.end && !dragging && !postedUrl && (
                         <CommentComposer
                           onSubmit={submitComment}
                           onCancel={() => setSelection(null)}
                         />
                       )}
-                      {isSelected && flatIndex === selection.end && postedUrl && (
+                      {isSelected && flatIndex === selection.end && !dragging && postedUrl && (
                         <CommentPosted
                           url={postedUrl}
                           onDismiss={() => {
