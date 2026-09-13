@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/pr-story/schema/v1/pr-story.schema.json",
+  "title": "PR Story",
+  "description": "A standard file describing a pull request as an ordered sequence of storytelling steps for review.",
+  "type": "object",
+  "required": ["version", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Format version. Currently only 1 is supported."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human readable title for the whole pull request story."
+    },
+    "base": {
+      "type": "string",
+      "description": "Default git ref/commit-ish the PR is diffed against (e.g. main, origin/main, a commit sha). Can be overridden on the CLI."
+    },
+    "head": {
+      "type": "string",
+      "description": "Default git ref/commit-ish for the tip of the PR branch. Defaults to HEAD. Can be overridden on the CLI."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/step" }
+    }
+  },
+  "definitions": {
+    "step": {
+      "type": "object",
+      "required": ["name", "description", "files", "story"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Title of the step, e.g. 'Redefine the storage interface'."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this step exists: the reasoning or objective behind the change, in markdown."
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths (relative to repo root) touched by this step."
+        },
+        "story": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Ordered narrative for the step: interleaved prose and diff references.",
+          "items": { "$ref": "#/definitions/storyItem" }
+        }
+      }
+    },
+    "storyItem": {
+      "oneOf": [
+        { "$ref": "#/definitions/textItem" },
+        { "$ref": "#/definitions/diffItem" }
+      ]
+    },
+    "textItem": {
+      "type": "object",
+      "required": ["type", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "text" },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Markdown prose narrating the step."
+        }
+      }
+    },
+    "diffItem": {
+      "type": "object",
+      "required": ["type", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "diff" },
+        "ref": {
+          "type": "string",
+          "pattern": "^[^#]+(#L\\d+(-L?\\d+)?)?$",
+          "description": "Reference to a file, or a line range within it, e.g. 'src/foo.py' or 'src/foo.py#L10-L20'. Never a copy of the diff: the CLI resolves this against the base/head refs at render time using the git CLI."
+        },
+        "caption": {
+          "type": "string",
+          "description": "Optional short caption/annotation shown above the resolved diff."
+        }
+      }
+    }
+  }
+}
