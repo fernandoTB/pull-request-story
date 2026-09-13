@@ -1,13 +1,7 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 import yaml from "js-yaml";
 import Ajv from "ajv";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const schema = JSON.parse(
-  readFileSync(path.join(__dirname, "story-schema.json"), "utf8")
-);
+import schema from "./story-schema.json" with { type: "json" };
 
 const ajv = new Ajv({ allErrors: true });
 const validateFn = ajv.compile(schema);

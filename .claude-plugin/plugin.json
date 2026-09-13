@@ -1,0 +1,14 @@
+{
+  "name": "pr-story",
+  "displayName": "PR Story",
+  "version": "0.2.0",
+  "description": "Storytelling code review: organize a pull request into narrated steps with real diff references, reviewable with the bundled prstory CLI.",
+  "author": {
+    "name": "fernandoTB"
+  },
+  "homepage": "https://github.com/fernandoTB/pull-request-presentation",
+  "repository": "https://github.com/fernandoTB/pull-request-presentation",
+  "license": "MIT",
+  "keywords": ["pull-request", "code-review", "git", "diff", "storytelling"],
+  "skills": "./skills/"
+}
