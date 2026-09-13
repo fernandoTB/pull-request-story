@@ -1,23 +1,30 @@
 # The `.pr-story.yml` format
 
-A PR story file is checked into the branch it describes (conventionally at
-the repo root, named `.pr-story.yml`) and tells reviewers the *story* of the
+A PR story file is checked into the branch it describes, **always at the
+repo root as `.pr-story.yml`**, and tells reviewers the *story* of the
 change: an ordered list of steps, each one a chapter that explains a
 reasoning and points at the exact code that backs it up.
 
 The file never embeds a copy of the diff. It only holds **references**
-(`path#L10-L20`); the `pr-story` CLI resolves those references against real
-git history (`git diff <base>..<head>`) at review time. That keeps the story
+(`path#L10-L20`); the `prstory` CLI resolves those references against real
+git history (`git diff base...head`) at review time. That keeps the story
 file small, keeps it truthful (it can't drift from the actual diff), and
 lets it be authored before the branch is even finished.
+
+Because the file lives at a fixed, known location and carries its own
+`base`/`head`, `prstory` commands take no arguments in the common case:
+
+```sh
+prstory tell
+```
 
 ## Top-level shape
 
 ```yaml
 version: 1
 title: "Switch persistence to the repository pattern"
-base: main   # optional, git ref/commit-ish to diff against. Defaults to origin's default branch.
-head: HEAD   # optional, git ref/commit-ish for the tip of the change. Defaults to HEAD.
+base: main   # required - see "Choosing base" below
+head: HEAD   # optional, defaults to HEAD
 steps:
   - name: ...
     description: ...
@@ -25,13 +32,29 @@ steps:
     story: [...]
 ```
 
-| Field   | Required | Meaning                                                                 |
-|---------|----------|--------------------------------------------------------------------------|
-| version | yes      | Format version. Always `1` today.                                       |
-| title   | no       | Title for the whole story, shown at the top of the UI.                  |
-| base    | no       | Default base ref to diff against. Overridable with `--base`.            |
-| head    | no       | Default head ref (tip of the PR). Overridable with `--head`.            |
-| steps   | yes      | Ordered array of steps (see below). Order is the narrative order.       |
+| Field   | Required | Meaning                                                                          |
+|---------|----------|-------------------------------------------------------------------------------------|
+| version | yes      | Format version. Always `1` today.                                               |
+| title   | no       | Title for the whole story, shown at the top of the UI.                          |
+| base    | **yes**  | Ref to diff against. Lives in the file, not on the command line - see below.    |
+| head    | no       | Tip of the change. Defaults to `HEAD`, which is correct almost always.          |
+| steps   | yes      | Ordered array of steps (see below). Order is the narrative order.               |
+
+### Choosing `base`
+
+`base` is required precisely so the CLI never needs `--base`/`--head` flags
+for normal use - the story is self-contained.
+
+- Feature branch off a long-lived branch: use that branch, e.g. `main`,
+  `origin/main`.
+- No such branch exists yet (e.g. the very first PR in a fresh repo): pin a
+  specific commit sha - whatever the change should be diffed from.
+- `prstory init` prefills a sensible guess (your remote's default branch)
+  that you should double check.
+
+`--base`/`--head` still exist as one-off CLI overrides when you deliberately
+want to diff against something other than what the file declares, but they
+are not part of the normal workflow.
 
 ## Step shape
 
@@ -92,7 +115,9 @@ A *reference*, not a copy, of a code change. The CLI resolves it against
 (single line). Line numbers refer to line numbers **in the head (new)
 version** of the file. The resolver:
 
-1. Runs `git diff <base>..<head> -- <path>` and parses the unified diff.
+1. Runs `git diff base...head -- <path>` (three-dot: what `head` changed
+   since it diverged from `base` - the same comparison GitHub uses for PR
+   diffs) and parses the unified diff.
 2. Keeps only the hunks that overlap the requested line range (or the whole
    diff, if no range was given).
 3. If the requested range has no associated change (e.g. it references
@@ -104,18 +129,27 @@ Because resolution happens against the live git history, the story file
 stays valid as the branch is amended, rebased, or force-pushed — as long as
 the referenced lines still exist near where they used to.
 
-## Validating
+## Using the CLI
 
 ```sh
-pr-story validate .pr-story.yml
+prstory init                # scaffold .pr-story.yml at the repo root
+prstory validate            # schema-check it
+prstory resolve             # print the fully resolved story as JSON
+prstory tell                # resolve + serve the interactive stepper UI
 ```
 
-## Rendering
+All four default to `.pr-story.yml` at the repo root and need no other
+arguments; pass a path explicitly (`prstory validate some/other.yml`) only
+when deviating from that convention.
 
-```sh
-pr-story serve .pr-story.yml --base main --head HEAD
+## Using it as a coding-agent plugin
+
+This repo is also a Claude Code plugin (`.claude-plugin/`) bundling the
+`prstory` CLI (no separate install - it's on `PATH` once the plugin is
+enabled) and a skill (`skills/pr-story/`) that teaches an agent when and how
+to author or review a story. Add it as a marketplace and install it:
+
 ```
-
-starts a local server that resolves every reference against your working
-tree's git history and opens the storytelling UI (a stepper: one step at a
-time, each rendering its description and its interleaved prose/diff story).
+/plugin marketplace add fernandoTB/pull-request-presentation
+/plugin install pr-story@pr-story-marketplace
+```

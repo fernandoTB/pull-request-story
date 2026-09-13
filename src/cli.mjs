@@ -7,36 +7,60 @@ import { resolveStory } from "./resolver.mjs";
 import { resolveRepoRoot, detectDefaultBase } from "./git.mjs";
 import { startServer } from "./server.mjs";
 
+const STORY_FILENAME = ".pr-story.yml";
+
 const program = new Command();
 
 program
-  .name("pr-story")
+  .name("prstory")
   .description(
-    "Tell the story of a pull request: an ordered, reviewable narrative on top of the git protocol."
+    "Tell the story of a pull request: an ordered, reviewable narrative on top of the git protocol.\n" +
+      `By convention the story lives at the repo root as ${STORY_FILENAME}, and carries its own base/head - so most commands take no arguments at all.`
   )
-  .version("0.1.0");
+  .version("0.2.0");
+
+/** Resolve the story file path: an explicit [file] argument wins; otherwise
+ * it's <repo-root>/.pr-story.yml, found from wherever the command is run. */
+async function resolveStoryPath(file, cwd) {
+  if (file) return path.resolve(cwd, file);
+  const repoRoot = await resolveRepoRoot(cwd);
+  return path.join(repoRoot, STORY_FILENAME);
+}
 
 function withCommonOptions(cmd) {
   return cmd
-    .argument("[file]", "path to the story file", ".pr-story.yml")
-    .option("--base <ref>", "base ref/commit-ish to diff against (overrides the file's `base`)")
-    .option("--head <ref>", "head ref/commit-ish, tip of the change (overrides the file's `head`)")
+    .argument(
+      "[file]",
+      `path to the story file (default: ${STORY_FILENAME} at the repo root)`
+    )
+    .option(
+      "--base <ref>",
+      "override the story's `base` for this run"
+    )
+    .option("--head <ref>", "override the story's `head` for this run")
     .option("--cwd <dir>", "repository directory", process.cwd());
 }
 
-async function resolveBaseHead({ file, story, opts }) {
-  const repoRoot = await resolveRepoRoot(opts.cwd);
-  const base = opts.base ?? story.base ?? (await detectDefaultBase(repoRoot));
+/** base/head always come from the story file - that's the whole point of
+ * keeping them in the format. --base/--head only exist as an explicit,
+ * one-off override; they are never required for normal use. */
+function resolveBaseHead(story, opts) {
+  const base = opts.base ?? story.base;
   const head = opts.head ?? story.head ?? "HEAD";
-  return { repoRoot, base, head };
+  return { base, head };
 }
 
 withCommonOptions(program.command("validate"))
   .description("validate a story file against the schema")
-  .action((file, opts) => {
+  .action(async (file, opts) => {
+    const storyPath = await resolveStoryPath(file, opts.cwd);
     try {
-      loadStoryFile(file);
-      console.log(`OK  ${file} is a valid PR story (${countSteps(file)}).`);
+      const story = loadStoryFile(storyPath);
+      console.log(
+        `OK  ${storyPath} is a valid PR story (${story.steps.length} step${
+          story.steps.length === 1 ? "" : "s"
+        }).`
+      );
     } catch (err) {
       if (err instanceof StoryValidationError) {
         console.error(err.message);
@@ -47,38 +71,34 @@ withCommonOptions(program.command("validate"))
     }
   });
 
-function countSteps(file) {
-  try {
-    const doc = loadStoryFile(file);
-    return `${doc.steps.length} step${doc.steps.length === 1 ? "" : "s"}`;
-  } catch {
-    return "";
-  }
-}
-
 withCommonOptions(program.command("resolve"))
   .description("resolve every diff reference against git history and print the resolved JSON")
   .option("--pretty", "pretty-print the JSON", true)
   .action(async (file, opts) => {
-    const story = loadStoryFile(file);
-    const { repoRoot, base, head } = await resolveBaseHead({ file, story, opts });
+    const storyPath = await resolveStoryPath(file, opts.cwd);
+    const story = loadStoryFile(storyPath);
+    const repoRoot = await resolveRepoRoot(opts.cwd);
+    const { base, head } = resolveBaseHead(story, opts);
     const resolved = await resolveStory(repoRoot, story, { base, head });
     process.stdout.write(JSON.stringify(resolved, null, opts.pretty ? 2 : 0) + "\n");
   });
 
-withCommonOptions(program.command("serve"))
+withCommonOptions(program.command("tell"))
   .description("resolve the story and serve the storytelling review UI locally")
   .option("-p, --port <port>", "port to listen on", "4173")
   .action(async (file, opts) => {
-    const story = loadStoryFile(file);
-    const { repoRoot, base, head } = await resolveBaseHead({ file, story, opts });
-    console.log(`Resolving "${story.title ?? file}" (${base}...${head})...`);
+    const storyPath = await resolveStoryPath(file, opts.cwd);
+    const story = loadStoryFile(storyPath);
+    const repoRoot = await resolveRepoRoot(opts.cwd);
+    const { base, head } = resolveBaseHead(story, opts);
+    console.log(`Resolving "${story.title ?? storyPath}" (${base}...${head})...`);
     const resolved = await resolveStory(repoRoot, story, { base, head });
     const server = await startServer({
       resolved,
       reload: async () => {
-        const fresh = loadStoryFile(file);
-        return resolveStory(repoRoot, fresh, { base, head });
+        const fresh = loadStoryFile(storyPath);
+        const freshRefs = resolveBaseHead(fresh, opts);
+        return resolveStory(repoRoot, fresh, freshRefs);
       },
       port: Number(opts.port),
     });
@@ -87,21 +107,25 @@ withCommonOptions(program.command("serve"))
 
 program
   .command("init")
-  .description("scaffold a starter .pr-story.yml in the current directory")
-  .argument("[file]", "path for the new story file", ".pr-story.yml")
-  .action((file) => {
-    if (existsSync(file)) {
-      console.error(`${file} already exists.`);
+  .description(`scaffold a starter ${STORY_FILENAME} at the repo root`)
+  .argument("[file]", "path for the new story file (default: repo root)")
+  .option("--cwd <dir>", "repository directory", process.cwd())
+  .action(async (file, opts) => {
+    const repoRoot = await resolveRepoRoot(opts.cwd);
+    const storyPath = file ? path.resolve(opts.cwd, file) : path.join(repoRoot, STORY_FILENAME);
+    if (existsSync(storyPath)) {
+      console.error(`${storyPath} already exists.`);
       process.exitCode = 1;
       return;
     }
-    writeFileSync(file, TEMPLATE);
-    console.log(`Wrote ${path.resolve(file)}`);
+    const base = await detectDefaultBase(repoRoot);
+    writeFileSync(storyPath, template(base));
+    console.log(`Wrote ${storyPath}`);
   });
 
-const TEMPLATE = `version: 1
+const template = (base) => `version: 1
 title: "Describe your pull request here"
-base: main
+base: ${base}
 head: HEAD
 steps:
   - name: "First step of the story"

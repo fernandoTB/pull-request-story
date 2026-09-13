@@ -4,7 +4,7 @@
   "title": "PR Story",
   "description": "A standard file describing a pull request as an ordered sequence of storytelling steps for review.",
   "type": "object",
-  "required": ["version", "steps"],
+  "required": ["version", "base", "steps"],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -17,11 +17,12 @@
     },
     "base": {
       "type": "string",
-      "description": "Default git ref/commit-ish the PR is diffed against (e.g. main, origin/main, a commit sha). Can be overridden on the CLI."
+      "minLength": 1,
+      "description": "Git ref/commit-ish the PR is diffed against (e.g. main, origin/main, a commit sha). Required: this is what lets `prstory tell` run with no flags - the story carries its own base, it isn't passed on the command line."
     },
     "head": {
       "type": "string",
-      "description": "Default git ref/commit-ish for the tip of the PR branch. Defaults to HEAD. Can be overridden on the CLI."
+      "description": "Git ref/commit-ish for the tip of the PR branch. Defaults to HEAD, which is almost always correct."
     },
     "steps": {
       "type": "array",
