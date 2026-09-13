@@ -121,8 +121,9 @@ version** of the file. The resolver:
 1. Runs `git diff base...head -- <path>` (three-dot: what `head` changed
    since it diverged from `base` - the same comparison GitHub uses for PR
    diffs) and parses the unified diff.
-2. Keeps only the hunks that overlap the requested line range (or the whole
-   diff, if no range was given).
+2. Trims the diff down to exactly the requested line range (not just
+   whichever hunks happen to overlap it - a whole-new-file hunk can be
+   hundreds of lines) - or shows the whole diff, if no range was given.
 3. If the requested range has no associated change (e.g. it references
    unchanged context, or a file with no diff at all — useful for pointing at
    pre-existing code for contrast), it falls back to showing that slice of

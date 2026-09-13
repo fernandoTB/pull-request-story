@@ -37122,6 +37122,40 @@ function toHunk(chunk) {
     }))
   };
 }
+function assignPositions(lines) {
+  const positions = new Array(lines.length);
+  let next = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].newLine != null) next = lines[i].newLine;
+    positions[i] = lines[i].newLine ?? next;
+  }
+  let prev = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (positions[i] == null) positions[i] = prev != null ? prev + 1 : 0;
+    prev = positions[i];
+  }
+  return positions;
+}
+function trimHunkToRange(hunk, range) {
+  if (!range) return hunk;
+  const positions = assignPositions(hunk.lines);
+  const lines = hunk.lines.filter((_, i) => positions[i] >= range.start && positions[i] <= range.end);
+  if (!lines.length) return null;
+  const newLineNos = lines.map((l) => l.newLine).filter((n) => n != null);
+  const oldLineNos = lines.map((l) => l.oldLine).filter((n) => n != null);
+  const newStart = newLineNos.length ? Math.min(...newLineNos) : hunk.newStart;
+  const newLines = newLineNos.length ? Math.max(...newLineNos) - newStart + 1 : 0;
+  const oldStart = oldLineNos.length ? Math.min(...oldLineNos) : hunk.oldStart;
+  const oldLines = oldLineNos.length ? Math.max(...oldLineNos) - oldStart + 1 : 0;
+  return {
+    header: `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`,
+    oldStart,
+    oldLines,
+    newStart,
+    newLines,
+    lines
+  };
+}
 async function resolveDiffItem(repoRoot, base, head, item) {
   const { path: filePath, range } = parseRef(item.ref);
   const base_ = { ref: item.ref, caption: item.caption ?? null, path: filePath, range };
@@ -37130,7 +37164,7 @@ async function resolveDiffItem(repoRoot, base, head, item) {
     const files = (0, import_parse_diff.default)(rawDiff);
     const file = files[0];
     if (file) {
-      const hunks = file.chunks.filter((c) => overlaps(range, c.newStart, c.newLines)).map(toHunk);
+      const hunks = file.chunks.filter((c) => overlaps(range, c.newStart, c.newLines)).map(toHunk).map((h) => trimHunkToRange(h, range)).filter(Boolean);
       if (hunks.length) {
         return {
           ...base_,

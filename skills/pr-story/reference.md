@@ -92,7 +92,8 @@ A **reference**, never a copy. `ref` syntax:
 Resolution (done by `prstory`, never by hand):
 1. `git diff base...head -- path` (three-dot: what head changed since it
    diverged from base).
-2. Keep only hunks overlapping the requested range.
+2. Trim down to exactly the requested range - not the whole hunk it falls
+   in, which for a new file can be the entire file.
 3. If the range has no associated change (e.g. deliberately pointing at
    unchanged code for contrast), fall back to showing that slice as plain
    context from `head`.

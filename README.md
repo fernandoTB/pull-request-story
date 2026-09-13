@@ -88,7 +88,8 @@ node bin/prstory tell
 - **`src/git.mjs` / `src/resolver.mjs`** — resolve every `diff` reference by
   running `git diff base...head` for that file (argv-only, never a shell
   string, so refs from a story file can't be interpreted as shell syntax),
-  keeping only the hunks that overlap the requested line range, and falling
+  trimming it down to exactly the requested line range (not the whole hunk
+  it falls in - a new file's hunk can be the entire file), and falling
   back to a plain unchanged read when a range has no associated change.
 - **`src/cli.mjs` / `src/server.mjs`** — the `prstory` CLI: `validate`,
   `resolve` (print the resolved JSON), `tell` (resolve + serve the UI), and

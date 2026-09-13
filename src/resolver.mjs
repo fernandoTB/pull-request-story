@@ -42,11 +42,59 @@ function toHunk(chunk) {
   };
 }
 
+/** Where each line of a hunk falls in the *new* file's line numbering -
+ * used to trim a hunk down to exactly the requested range. A pure deletion
+ * has no new-file line of its own, so it inherits the position of the next
+ * kept line ("this happens right before new line X"); trailing deletions
+ * with nothing after them anchor just past the previous line instead. */
+function assignPositions(lines) {
+  const positions = new Array(lines.length);
+  let next = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].newLine != null) next = lines[i].newLine;
+    positions[i] = lines[i].newLine ?? next;
+  }
+  let prev = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (positions[i] == null) positions[i] = prev != null ? prev + 1 : 0;
+    prev = positions[i];
+  }
+  return positions;
+}
+
+/** Trim a hunk to only the lines the ref actually asked for - a whole new
+ * file's hunk can be 100s of lines; a ref's range should show just its
+ * excerpt, not the entire file, so the story stays a story and not a dump
+ * of every file it touches. Returns null if nothing survives (caller
+ * falls back the same way as a hunk that didn't overlap at all). */
+function trimHunkToRange(hunk, range) {
+  if (!range) return hunk;
+  const positions = assignPositions(hunk.lines);
+  const lines = hunk.lines.filter((_, i) => positions[i] >= range.start && positions[i] <= range.end);
+  if (!lines.length) return null;
+  const newLineNos = lines.map((l) => l.newLine).filter((n) => n != null);
+  const oldLineNos = lines.map((l) => l.oldLine).filter((n) => n != null);
+  const newStart = newLineNos.length ? Math.min(...newLineNos) : hunk.newStart;
+  const newLines = newLineNos.length ? Math.max(...newLineNos) - newStart + 1 : 0;
+  const oldStart = oldLineNos.length ? Math.min(...oldLineNos) : hunk.oldStart;
+  const oldLines = oldLineNos.length ? Math.max(...oldLineNos) - oldStart + 1 : 0;
+  return {
+    header: `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`,
+    oldStart,
+    oldLines,
+    newStart,
+    newLines,
+    lines,
+  };
+}
+
 /** Resolve one `type: diff` story item against real git history: a real
- * `git diff base...head` for the file, trimmed to hunks overlapping the
- * requested line range, falling back to a plain context read when the
- * range has no associated change. Never reads a copy stored in the story
- * file itself - the story file only ever holds the reference string. */
+ * `git diff base...head` for the file, trimmed down to exactly the
+ * requested line range (not just the hunks that happen to overlap it - a
+ * whole-new-file hunk can be hundreds of lines), falling back to a plain
+ * context read when the range has no associated change. Never reads a
+ * copy stored in the story file itself - the story file only ever holds
+ * the reference string. */
 export async function resolveDiffItem(repoRoot, base, head, item) {
   const { path: filePath, range } = parseRef(item.ref);
   const base_ = { ref: item.ref, caption: item.caption ?? null, path: filePath, range };
@@ -59,7 +107,9 @@ export async function resolveDiffItem(repoRoot, base, head, item) {
     if (file) {
       const hunks = file.chunks
         .filter((c) => overlaps(range, c.newStart, c.newLines))
-        .map(toHunk);
+        .map(toHunk)
+        .map((h) => trimHunkToRange(h, range))
+        .filter(Boolean);
       if (hunks.length) {
         return {
           ...base_,
