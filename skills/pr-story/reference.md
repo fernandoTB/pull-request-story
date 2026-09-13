@@ -16,6 +16,8 @@ version: 1
 title: "Switch persistence to the repository pattern"   # optional
 base: main            # REQUIRED - see "Choosing base" below
 head: HEAD            # optional, defaults to HEAD
+github:               # optional - enables commenting from the UI onto the real PR
+  pr: 42
 steps:
   - name: ...
     description: ...
@@ -29,6 +31,7 @@ steps:
 | title   | no       | Title for the whole story.                                                               |
 | base    | **yes**  | Git ref/commit-ish to diff against. Not a CLI flag - lives in the file so `prstory tell` takes no arguments. |
 | head    | no       | Tip of the change. Defaults to `HEAD`, which is correct almost always.                    |
+| github  | no       | `{ pr: <number> }`. If set (and a token is found - `gh auth token`, git credentials, or `GH_TOKEN`/`GITHUB_TOKEN`), `prstory tell` lets a reviewer select a line/range in a resolved diff and post a comment straight to that real PR. `owner`/`repo` come from the git remote, not this field. |
 | steps   | yes      | Ordered array of steps (chapters), at least one.                                          |
 
 ### Choosing `base`

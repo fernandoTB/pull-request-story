@@ -2,22 +2,90 @@ import React, { useEffect, useState } from "react";
 
 const MARKERS = { add: "+", del: "-", normal: " " };
 
-function DiffLine({ line }) {
-  const cls =
-    line.type === "add" ? "diff-line-add" : line.type === "del" ? "diff-line-del" : "";
+function sideOf(line) {
+  return line.type === "del" ? "LEFT" : "RIGHT";
+}
+
+function lineNumberOf(line) {
+  return line.type === "del" ? line.oldLine : line.newLine;
+}
+
+function CommentComposer({ onSubmit, onCancel }) {
+  const [body, setBody] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function submit() {
+    if (!body.trim() || posting) return;
+    setPosting(true);
+    setError(null);
+    try {
+      await onSubmit(body);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPosting(false);
+    }
+  }
+
   return (
-    <tr className={cls}>
-      <td className="diff-line-num">{line.oldLine ?? ""}</td>
-      <td className="diff-line-num">{line.newLine ?? ""}</td>
-      <td className="diff-line-marker">{MARKERS[line.type] ?? " "}</td>
-      <td className="diff-line-content">{line.content}</td>
+    <tr className="comment-composer-row">
+      <td colSpan={4}>
+        <div className="comment-composer">
+          <textarea
+            autoFocus
+            placeholder="Leave a comment on this line - it posts straight to the GitHub PR."
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onCancel();
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+            }}
+            disabled={posting}
+          />
+          {error && <div className="comment-composer-error">{error}</div>}
+          <div className="comment-composer-actions">
+            <button type="button" className="nav-btn" onClick={onCancel} disabled={posting}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="comment-submit-btn"
+              onClick={submit}
+              disabled={posting || !body.trim()}
+            >
+              {posting ? "Commenting…" : "Comment on GitHub"}
+            </button>
+          </div>
+        </div>
+      </td>
     </tr>
   );
 }
 
-export default function DiffBlock({ item, isViewed, onToggleViewed }) {
+function CommentPosted({ url, onDismiss }) {
+  return (
+    <tr className="comment-composer-row">
+      <td colSpan={4}>
+        <div className="comment-posted">
+          Comment posted.{" "}
+          <a href={url} target="_blank" rel="noreferrer">
+            View on GitHub
+          </a>
+          <button type="button" className="comment-dismiss-btn" onClick={onDismiss}>
+            Dismiss
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+export default function DiffBlock({ item, isViewed, onToggleViewed, githubStatus }) {
   const { path, range, caption, kind, file, hunks } = item;
   const [collapsed, setCollapsed] = useState(false);
+  const [selection, setSelection] = useState(null); // { anchor, start, end }
+  const [postedUrl, setPostedUrl] = useState(null);
 
   // Marking a diff viewed collapses it, mirroring GitHub's "Viewed"
   // checkbox; un-checking it does not force it back open.
@@ -30,6 +98,58 @@ export default function DiffBlock({ item, isViewed, onToggleViewed }) {
       ? `#L${range.start}`
       : `#L${range.start}-L${range.end}`
     : "";
+
+  const canComment = kind === "diff" && !!githubStatus?.enabled;
+
+  // Flatten hunks into one line list (skipping hunk-header separator rows)
+  // so a selection can be tracked as a simple [start, end] index range.
+  const rows = [];
+  const flatLines = [];
+  for (const hunk of hunks) {
+    rows.push({ kind: "hunk-header", header: hunk.header });
+    for (const line of hunk.lines) {
+      rows.push({ kind: "line", line, flatIndex: flatLines.length });
+      flatLines.push(line);
+    }
+  }
+
+  function handleLineClick(flatIndex, e) {
+    if (!canComment) return;
+    setPostedUrl(null);
+    const clickedSide = sideOf(flatLines[flatIndex]);
+    if (e.shiftKey && selection && sideOf(flatLines[selection.anchor]) === clickedSide) {
+      setSelection({
+        anchor: selection.anchor,
+        start: Math.min(selection.anchor, flatIndex),
+        end: Math.max(selection.anchor, flatIndex),
+      });
+    } else {
+      setSelection({ anchor: flatIndex, start: flatIndex, end: flatIndex });
+    }
+  }
+
+  async function submitComment(body) {
+    const startLine = flatLines[selection.start];
+    const endLine = flatLines[selection.end];
+    const payload = {
+      path,
+      body,
+      line: lineNumberOf(endLine),
+      side: sideOf(endLine),
+    };
+    if (selection.start !== selection.end) {
+      payload.startLine = lineNumberOf(startLine);
+      payload.startSide = sideOf(startLine);
+    }
+    const res = await fetch("/api/comment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to post comment.");
+    setPostedUrl(data.url);
+  }
 
   return (
     <div className={`diff-block${isViewed ? " diff-block-viewed" : ""}`}>
@@ -77,20 +197,55 @@ export default function DiffBlock({ item, isViewed, onToggleViewed }) {
               refs.
             </div>
           ) : (
-            <table className="diff-table">
+            <table className={`diff-table${canComment ? " diff-table-commentable" : ""}`}>
               <tbody>
-                {hunks.map((hunk, i) => (
-                  <React.Fragment key={i}>
-                    {kind === "diff" && (
-                      <tr className="diff-hunk-header">
-                        <td colSpan={4}>{hunk.header}</td>
+                {rows.map((row, i) => {
+                  if (row.kind === "hunk-header") {
+                    return (
+                      <tr className="diff-hunk-header" key={i}>
+                        <td colSpan={4}>{row.header}</td>
                       </tr>
-                    )}
-                    {hunk.lines.map((line, j) => (
-                      <DiffLine line={line} key={j} />
-                    ))}
-                  </React.Fragment>
-                ))}
+                    );
+                  }
+                  const { line, flatIndex } = row;
+                  const isSelected =
+                    !!selection && flatIndex >= selection.start && flatIndex <= selection.end;
+                  const cls = [
+                    line.type === "add" ? "diff-line-add" : "",
+                    line.type === "del" ? "diff-line-del" : "",
+                    isSelected ? "diff-line-selected" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <React.Fragment key={i}>
+                      <tr
+                        className={cls}
+                        onClick={canComment ? (e) => handleLineClick(flatIndex, e) : undefined}
+                      >
+                        <td className="diff-line-num">{line.oldLine ?? ""}</td>
+                        <td className="diff-line-num">{line.newLine ?? ""}</td>
+                        <td className="diff-line-marker">{MARKERS[line.type] ?? " "}</td>
+                        <td className="diff-line-content">{line.content}</td>
+                      </tr>
+                      {isSelected && flatIndex === selection.end && !postedUrl && (
+                        <CommentComposer
+                          onSubmit={submitComment}
+                          onCancel={() => setSelection(null)}
+                        />
+                      )}
+                      {isSelected && flatIndex === selection.end && postedUrl && (
+                        <CommentPosted
+                          url={postedUrl}
+                          onDismiss={() => {
+                            setPostedUrl(null);
+                            setSelection(null);
+                          }}
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           )}

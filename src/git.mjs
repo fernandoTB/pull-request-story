@@ -45,6 +45,23 @@ export async function showFileAtRef(repoRoot, ref, filePath) {
   }
 }
 
+/** Parse owner/repo out of a GitHub remote URL, https or ssh, .git suffix
+ * optional. Returns null for anything that isn't a github.com remote
+ * (GitHub Enterprise Server isn't detected here, only the public host). */
+function parseGitHubRemote(url) {
+  const match = url.trim().match(/github\.com[/:]([^/]+)\/(.+?)(\.git)?\/?$/);
+  return match ? { owner: match[1], repo: match[2] } : null;
+}
+
+export async function getRemoteOwnerRepo(repoRoot, remoteName = "origin") {
+  try {
+    const url = await git(repoRoot, ["remote", "get-url", remoteName]);
+    return parseGitHubRemote(url);
+  } catch {
+    return null;
+  }
+}
+
 export async function detectDefaultBase(repoRoot) {
   try {
     const out = await git(repoRoot, [
