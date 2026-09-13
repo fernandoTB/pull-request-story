@@ -1,0 +1,33 @@
+{
+  "name": "pr-story",
+  "version": "0.2.0",
+  "description": "Storytelling code review: an ordered, stepper-driven narrative for pull requests, built on the git protocol.",
+  "type": "module",
+  "bin": {
+    "pr-story": "bin/prstory",
+    "prstory": "bin/prstory"
+  },
+  "files": [
+    "bin",
+    "dist-plugin",
+    "web/dist"
+  ],
+  "scripts": {
+    "build:cli": "esbuild src/cli.mjs --bundle --platform=node --format=esm --external:node:* --banner:js=\"import { createRequire as __prstoryCreateRequire } from 'node:module'; const require = __prstoryCreateRequire(import.meta.url);\" --outfile=dist-plugin/cli.mjs",
+    "build:ui": "npm --prefix web install && npm --prefix web run build",
+    "build": "npm run build:cli && npm run build:ui",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "commander": "^12.1.0",
+    "esbuild": "^0.24.2",
+    "express": "^4.21.2",
+    "js-yaml": "^4.1.0",
+    "parse-diff": "^0.11.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

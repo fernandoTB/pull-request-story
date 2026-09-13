@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+
+# dist-plugin/cli.mjs and web/dist/ ARE committed - they're the prebuilt,
+# dependency-free CLI + UI a git/plugin install ships without a build step.
+# Run `npm run build` before committing after touching src/ or web/src/.

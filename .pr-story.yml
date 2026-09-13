@@ -1,0 +1,187 @@
+version: 1
+title: "Storytelling code review for pull requests"
+base: 4c20d07
+head: HEAD
+steps:
+  - name: "Define the .pr-story.yml storytelling format"
+    description: |
+      Before writing any tooling we needed a standard, git-native file
+      format reviewers and authors could agree on: a sequence of narrated
+      steps, each pointing at code by **reference** (`path#L10-L20`)
+      rather than embedding a copy of the diff. Keeping it reference-only
+      is what lets the same story file stay truthful across rebases and
+      force-pushes, and lets an author write the narrative before the
+      branch is even finished.
+    files:
+      - src/story-schema.json
+      - docs/FORMAT.md
+    story:
+      - type: text
+        content: |
+          The schema defines two kinds of story items: plain markdown
+          `text`, and a `diff` item that only ever carries a `ref` string.
+      - type: diff
+        ref: src/story-schema.json#L80-L96
+        caption: "The diff item schema: a ref pattern, never a diff body."
+      - type: text
+        content: |
+          The format doc spells out exactly how that `ref` gets resolved:
+          a real `git diff`, trimmed to the lines that were asked for.
+      - type: diff
+        ref: docs/FORMAT.md#L80-L96
+        caption: "How a diff reference is documented for authors."
+
+  - name: "Resolve diff references against real git history"
+    description: |
+      This is the core trick that makes the format viable: a reference
+      like `src/resolver.mjs#L50-L60` is meaningless until something
+      turns it into an actual diff. We implemented that resolver on top
+      of the plain `git` CLI (via argv-only `execFile`, so refs and paths
+      from a story file can never be interpreted as shell syntax), using
+      a three-dot `base...head` range - the same comparison GitHub uses
+      for PR diffs - so the story always reflects what the PR actually
+      changed.
+    files:
+      - src/git.mjs
+      - src/resolver.mjs
+    story:
+      - type: text
+        content: |
+          `diffForFile` runs the actual `git diff` for one file, scoped
+          to the three-dot range between base and head.
+      - type: diff
+        ref: src/git.mjs#L26-L38
+        caption: "The only git command that does the real diffing."
+      - type: text
+        content: |
+          `resolveDiffItem` then keeps only the hunks that overlap the
+          requested line range, and falls back to a plain, unchanged
+          read of the file when a range points at code with no diff at
+          all (useful for showing pre-existing code for contrast).
+      - type: diff
+        ref: src/resolver.mjs#L50-L80
+        caption: "Trimming the real diff down to the requested lines."
+      - type: diff
+        ref: src/resolver.mjs#L82-L110
+        caption: "Falling back to unchanged context when there's no diff."
+
+  - name: "Add the pr-story CLI"
+    description: |
+      With a resolver in hand, the format needed a CLI so `validate`,
+      `resolve` and `tell` are one command away, on top of whatever
+      git host or workflow a team already uses - no server, no new
+      hosted UI to adopt, just a local process reading the same git
+      history you already have checked out.
+    files:
+      - src/cli.mjs
+      - src/schema.mjs
+      - src/server.mjs
+      - bin/prstory
+    story:
+      - type: text
+        content: |
+          `prstory tell` resolves the story once up front and hands it
+          to a tiny Express server that the UI polls over `/api/story`.
+      - type: diff
+        ref: src/cli.mjs#L86-L105
+        caption: "The tell command: resolve, then hand off to the UI."
+
+  - name: "Build the stepper review UI"
+    description: |
+      Finally, the actual reviewing experience: a stepper down the left
+      side turns the steps array into a guided walkthrough instead of a
+      flat file list, and each step renders its description followed by
+      its interleaved markdown/diff narrative using the resolver's own
+      structured hunks - so line numbers, additions and deletions all
+      come straight from git, never from hand-maintained prose.
+    files:
+      - web/src/App.jsx
+      - web/src/components/Stepper.jsx
+      - web/src/components/StepPanel.jsx
+      - web/src/components/DiffBlock.jsx
+    story:
+      - type: text
+        content: |
+          `DiffBlock` renders one resolved diff reference: a header with
+          the path, the requested range, and the +/- stat, then a real
+          add/remove/context-colored table built from the hunk lines.
+      - type: diff
+        ref: web/src/components/DiffBlock.jsx#L18-L48
+        caption: "Rendering a resolved reference, not raw diff text."
+      - type: text
+        content: |
+          Reviewed steps and the currently active step are tracked
+          client-side in `App.jsx`, so reloading mid-review doesn't lose
+          your place.
+      - type: diff
+        ref: web/src/App.jsx#L1-L40
+        caption: "Fetching the resolved story and restoring review progress."
+
+  - name: "Make it a zero-flag CLI: base/head live in the file"
+    description: |
+      Once a reviewer actually had to type
+      `prstory serve .pr-story.yml --base main --head origin/feature` every
+      time, it was clear the CLI was asking the human for information the
+      story file already had. `base` became a required schema field instead
+      of a CLI flag, `serve` was renamed to `tell` (it tells the story), and
+      the story file's location was standardized to the repo root so the
+      whole thing collapses to `prstory tell` with no arguments at all.
+    files:
+      - src/story-schema.json
+      - src/cli.mjs
+    story:
+      - type: text
+        content: |
+          `base` moved into the schema's required list - there's no silent
+          fallback to a guessed default branch anymore.
+      - type: diff
+        ref: src/story-schema.json#L18-L24
+        caption: "base is now required; head still defaults to HEAD."
+      - type: text
+        content: |
+          The CLI resolves the story path itself - an explicit argument
+          still wins, but with none given it looks up the repo root and
+          reads `.pr-story.yml` from there.
+      - type: diff
+        ref: src/cli.mjs#L22-L28
+        caption: "No more typing the filename or --base/--head by hand."
+
+  - name: "Package it: a dependency-free prstory CLI + a Claude Code plugin"
+    description: |
+      Two audiences needed this to be installable, not just runnable from
+      a checkout: humans via `npm install`, and coding agents via a Claude
+      Code plugin that bundles the CLI itself (not just docs about it), so
+      an agent can author and validate a story with no setup step. Both
+      distribution paths ship the same esbuild bundle
+      (`dist-plugin/cli.mjs`, zero runtime dependencies) - a plugin install
+      just copies files, so nothing can be built at install time.
+    files:
+      - package.json
+      - bin/prstory
+      - .claude-plugin/plugin.json
+      - .claude-plugin/marketplace.json
+      - skills/pr-story/SKILL.md
+    story:
+      - type: text
+        content: |
+          `pr-story`/`prstory` both resolve to the same bundled,
+          zero-dependency script - installing the package installs no
+          runtime dependencies of its own.
+      - type: diff
+        ref: package.json#L6-L9
+        caption: "Two command names, one bundled script."
+      - type: text
+        content: |
+          The plugin manifest points at the skill; enabling the plugin puts
+          `bin/` (this same bundled CLI) on the agent's `PATH` as `prstory`.
+      - type: diff
+        ref: .claude-plugin/plugin.json#L1-L14
+        caption: "The whole plugin manifest - a description and a skills path."
+      - type: text
+        content: |
+          The skill is what makes this useful to an agent unprompted: it
+          triggers after finishing a multi-step change, or when reviewing a
+          branch that already has a `.pr-story.yml`.
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L1-L4
+        caption: "The frontmatter description - this is what triggers the skill."
