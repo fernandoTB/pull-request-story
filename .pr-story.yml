@@ -21,21 +21,36 @@ steps:
     story:
       - type: text
         content: |
+          Wired up first: `cli.mjs` imports the new coverage function
+          alongside the existing resolver import.
+      - type: diff
+        ref: src/cli.mjs#L1-L9
+        caption: "One more import - computeDiffCoverage."
+      - type: text
+        content: |
           The check needs the diff for *every* file the PR touches, not
           just one at a time like the resolver already does.
       - type: diff
-        ref: src/git.mjs#L40-L44
+        ref: src/git.mjs#L40-L45
         caption: "The same three-dot diff, unfiltered by path."
       - type: text
         content: |
           Coverage is computed by re-using the resolver's own line-position
-          logic: every step's refs are unioned into per-file covered
-          ranges (a bare `path` ref covers the whole file), then every real
+          logic instead of duplicating it - `toHunk`/`assignPositions` just
+          needed to become exported, alongside a new import for the
+          whole-repo diff.
+      - type: diff
+        ref: src/resolver.mjs#L1-L50
+        caption: "Reusing existing logic: two exports, one new import."
+      - type: text
+        content: |
+          Every step's refs are unioned into per-file covered ranges (a
+          bare `path` ref covers the whole file), then every real
           added/removed line's position is checked against them - a
           deletion's position is interpolated the same way a trimmed hunk's
           would be, so a range's edges behave consistently either way.
       - type: diff
-        ref: src/resolver.mjs#L180-L226
+        ref: src/resolver.mjs#L170-L230
         caption: "Union the story's coverage, then flag every line outside it."
       - type: text
         content: |
@@ -46,3 +61,42 @@ steps:
       - type: diff
         ref: src/cli.mjs#L54-L99
         caption: "prstory validate --coverage: report and exit non-zero."
+
+  - name: "Document it, and prove it on this repo's own story"
+    description: |
+      A validation check nobody knows to run doesn't help. Documented in
+      the format spec, the skill (as a step in the "verify before
+      finishing" checklist an agent already follows), and the reference -
+      including the one workaround worth knowing: a bare `path` ref for a
+      file that's genuinely not worth narrating line-by-line, like a
+      regenerated bundle.
+    files:
+      - README.md
+      - docs/FORMAT.md
+      - skills/pr-story/SKILL.md
+      - skills/pr-story/reference.md
+      - .pr-story.yml
+      - dist-plugin/cli.mjs
+    story:
+      - type: diff
+        ref: README.md#L64-L79
+        caption: "README: --coverage in the usage list."
+      - type: diff
+        ref: docs/FORMAT.md#L172-L192
+        caption: "FORMAT.md: the full explanation, plus the bare-path-ref tip."
+      - type: diff
+        ref: skills/pr-story/SKILL.md#L36-L50
+        caption: "SKILL.md: --coverage added to the verify-before-finishing steps."
+      - type: diff
+        ref: skills/pr-story/reference.md#L100-L113
+        caption: "reference.md: a dedicated Coverage checking section."
+      - type: text
+        content: |
+          This file's own diff, and the generated bundle/UI assets that
+          rebuild alongside every change here, are exactly the "not worth
+          narrating" case the tip above describes - referenced by bare
+          path rather than left out and failing the check they introduce.
+      - type: diff
+        ref: .pr-story.yml
+      - type: diff
+        ref: dist-plugin/cli.mjs
