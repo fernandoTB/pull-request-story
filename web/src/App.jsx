@@ -2,11 +2,11 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Stepper from "./components/Stepper.jsx";
 import StepPanel from "./components/StepPanel.jsx";
 
-function storageKey(story) {
-  return `pr-story:reviewed:${story.title ?? "untitled"}:${story.base}...${story.head}`;
+function storageKey(story, kind) {
+  return `pr-story:${kind}:${story.title ?? "untitled"}:${story.base}...${story.head}`;
 }
 
-function loadReviewed(key) {
+function loadSet(key) {
   try {
     const raw = localStorage.getItem(key);
     return raw ? new Set(JSON.parse(raw)) : new Set();
@@ -15,11 +15,20 @@ function loadReviewed(key) {
   }
 }
 
+function saveSet(key, set) {
+  try {
+    localStorage.setItem(key, JSON.stringify([...set]));
+  } catch {
+    // best-effort persistence only
+  }
+}
+
 export default function App() {
   const [story, setStory] = useState(null);
   const [error, setError] = useState(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [reviewed, setReviewed] = useState(new Set());
+  const [viewedDiffs, setViewedDiffs] = useState(new Set());
 
   const fetchStory = useCallback(() => {
     fetch("/api/story")
@@ -29,7 +38,8 @@ export default function App() {
       })
       .then((data) => {
         setStory(data);
-        setReviewed(loadReviewed(storageKey(data)));
+        setReviewed(loadSet(storageKey(data, "reviewed")));
+        setViewedDiffs(loadSet(storageKey(data, "viewed-diffs")));
       })
       .catch((err) => setError(err.message));
   }, []);
@@ -56,14 +66,23 @@ export default function App() {
     setReviewed((prev) => {
       const next = new Set(prev);
       next.has(activeIndex) ? next.delete(activeIndex) : next.add(activeIndex);
-      try {
-        localStorage.setItem(storageKey(story), JSON.stringify([...next]));
-      } catch {
-        // best-effort persistence only
-      }
+      saveSet(storageKey(story, "reviewed"), next);
       return next;
     });
   }, [story, activeIndex]);
+
+  const toggleDiffViewed = useCallback(
+    (diffKey) => {
+      if (!story) return;
+      setViewedDiffs((prev) => {
+        const next = new Set(prev);
+        next.has(diffKey) ? next.delete(diffKey) : next.add(diffKey);
+        saveSet(storageKey(story, "viewed-diffs"), next);
+        return next;
+      });
+    },
+    [story]
+  );
 
   const progress = useMemo(() => {
     if (!story) return null;
@@ -106,6 +125,8 @@ export default function App() {
           total={story.steps.length}
           isReviewed={reviewed.has(activeIndex)}
           onToggleReviewed={toggleReviewed}
+          viewedDiffs={viewedDiffs}
+          onToggleDiffViewed={toggleDiffViewed}
           onPrev={() => setActiveIndex((i) => Math.max(i - 1, 0))}
           onNext={() =>
             setActiveIndex((i) => Math.min(i + 1, story.steps.length - 1))

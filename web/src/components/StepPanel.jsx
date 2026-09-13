@@ -9,9 +9,16 @@ export default function StepPanel({
   total,
   isReviewed,
   onToggleReviewed,
+  viewedDiffs,
+  onToggleDiffViewed,
   onPrev,
   onNext,
 }) {
+  const diffCount = step.story.filter((item) => item.type === "diff").length;
+  const viewedCount = step.story.filter(
+    (item, i) => item.type === "diff" && viewedDiffs.has(`${index}:${i}`)
+  ).length;
+
   return (
     <article className="main" key={index}>
       <div className="step-heading">
@@ -19,6 +26,11 @@ export default function StepPanel({
           Step {index + 1} / {total}
         </span>
         <h2>{step.name}</h2>
+        {diffCount > 0 && (
+          <span className="step-diff-progress">
+            {viewedCount} / {diffCount} diffs viewed
+          </span>
+        )}
       </div>
 
       <div className="step-files">
@@ -40,7 +52,11 @@ export default function StepPanel({
           </div>
         ) : (
           <div className="story-item" key={i}>
-            <DiffBlock item={item} />
+            <DiffBlock
+              item={item}
+              isViewed={viewedDiffs.has(`${index}:${i}`)}
+              onToggleViewed={() => onToggleDiffViewed(`${index}:${i}`)}
+            />
           </div>
         )
       )}

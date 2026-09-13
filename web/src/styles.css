@@ -207,6 +207,12 @@ body {
   color: var(--text-muted);
 }
 
+.step-diff-progress {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .step-files {
   display: flex;
   flex-wrap: wrap;
@@ -255,6 +261,16 @@ body {
   overflow: hidden;
 }
 
+.diff-block-viewed .diff-block-header {
+  background: var(--done-bg);
+}
+
+.diff-block-viewed .diff-block-path {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+
 .diff-block-header {
   display: flex;
   align-items: center;
@@ -266,9 +282,47 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.diff-collapse-btn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+  border-radius: 4px;
+}
+
+.diff-collapse-btn:hover {
+  background: var(--border);
+}
+
 .diff-block-path {
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.diff-viewed-toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.diff-viewed-toggle input {
+  accent-color: var(--done-text);
+  cursor: pointer;
 }
 
 .diff-stat-add {
