@@ -91,10 +91,38 @@ body {
   min-height: 0;
 }
 
-.stepper {
-  width: 300px;
+.stepper-wrap {
+  position: relative;
   flex: none;
   border-right: 1px solid var(--border);
+}
+
+.sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+  background: transparent;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.active {
+  background: var(--accent);
+  opacity: 0.35;
+}
+
+.stepper {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
   overflow-y: auto;
   padding: 10px 0;
 }

@@ -1,6 +1,24 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Stepper from "./components/Stepper.jsx";
 import StepPanel from "./components/StepPanel.jsx";
+
+const SIDEBAR_WIDTH_KEY = "pr-story:sidebar-width";
+const DEFAULT_SIDEBAR_WIDTH = 300;
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 560;
+
+function clampSidebarWidth(width) {
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));
+}
+
+function loadSidebarWidth() {
+  try {
+    const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    return raw ? clampSidebarWidth(raw) : DEFAULT_SIDEBAR_WIDTH;
+  } catch {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+}
 
 function storageKey(story, kind) {
   return `pr-story:${kind}:${story.title ?? "untitled"}:${story.base}...${story.head}`;
@@ -29,6 +47,9 @@ export default function App() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [reviewed, setReviewed] = useState(new Set());
   const [viewedDiffs, setViewedDiffs] = useState(new Set());
+  const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const [resizingSidebar, setResizingSidebar] = useState(false);
+  const layoutRef = useRef(null);
 
   const fetchStory = useCallback(() => {
     fetch("/api/story")
@@ -60,6 +81,38 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [story]);
+
+  const startSidebarResize = useCallback((e) => {
+    e.preventDefault();
+    setResizingSidebar(true);
+  }, []);
+
+  useEffect(() => {
+    if (!resizingSidebar) return;
+
+    function onMove(e) {
+      const left = layoutRef.current?.getBoundingClientRect().left ?? 0;
+      setSidebarWidth(clampSidebarWidth(e.clientX - left));
+    }
+    function onUp() {
+      setResizingSidebar(false);
+      setSidebarWidth((width) => {
+        try {
+          localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+        } catch {
+          // best-effort persistence only
+        }
+        return width;
+      });
+    }
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [resizingSidebar]);
 
   const toggleReviewed = useCallback(() => {
     if (!story) return;
@@ -112,13 +165,22 @@ export default function App() {
         </span>
         <span className="progress-pill">{progress}</span>
       </header>
-      <div className="layout">
-        <Stepper
-          steps={story.steps}
-          activeIndex={activeIndex}
-          reviewed={reviewed}
-          onSelect={setActiveIndex}
-        />
+      <div className={`layout${resizingSidebar ? " sidebar-resizing" : ""}`} ref={layoutRef}>
+        <div className="stepper-wrap" style={{ width: sidebarWidth }}>
+          <Stepper
+            steps={story.steps}
+            activeIndex={activeIndex}
+            reviewed={reviewed}
+            onSelect={setActiveIndex}
+          />
+          <div
+            className={`sidebar-resize-handle${resizingSidebar ? " active" : ""}`}
+            onMouseDown={startSidebarResize}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+          />
+        </div>
         <StepPanel
           step={step}
           index={activeIndex}
