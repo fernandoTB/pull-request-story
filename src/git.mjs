@@ -45,12 +45,21 @@ export async function showFileAtRef(repoRoot, ref, filePath) {
   }
 }
 
-/** Parse owner/repo out of a GitHub remote URL, https or ssh, .git suffix
- * optional. Returns null for anything that isn't a github.com remote
- * (GitHub Enterprise Server isn't detected here, only the public host). */
+/** Parse owner/repo out of a git remote URL - scp-like ssh
+ * (`git@host:owner/repo.git`) or a URL (`https://host/owner/repo`,
+ * `ssh://git@host/owner/repo.git`), .git suffix optional. Deliberately
+ * doesn't require the host to be literally "github.com": SSH host aliases
+ * (`git@github-personal:...`, set up in ~/.ssh/config to juggle multiple
+ * accounts) never contain it, and this tool only ever talks to the GitHub
+ * API afterwards anyway - a remote that isn't really GitHub just fails
+ * there with a clear error instead of being silently misdetected here. */
 function parseGitHubRemote(url) {
-  const match = url.trim().match(/github\.com[/:]([^/]+)\/(.+?)(\.git)?\/?$/);
-  return match ? { owner: match[1], repo: match[2] } : null;
+  const trimmed = url.trim();
+  const scpLike = trimmed.match(/^[^@\s]+@[^:/\s]+:([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (scpLike) return { owner: scpLike[1], repo: scpLike[2] };
+  const urlLike = trimmed.match(/^\w+:\/\/[^/\s]+\/([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (urlLike) return { owner: urlLike[1], repo: urlLike[2] };
+  return null;
 }
 
 export async function getRemoteOwnerRepo(repoRoot, remoteName = "origin") {

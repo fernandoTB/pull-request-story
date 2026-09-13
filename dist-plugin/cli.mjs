@@ -37053,8 +37053,12 @@ async function showFileAtRef(repoRoot, ref, filePath) {
   }
 }
 function parseGitHubRemote(url) {
-  const match = url.trim().match(/github\.com[/:]([^/]+)\/(.+?)(\.git)?\/?$/);
-  return match ? { owner: match[1], repo: match[2] } : null;
+  const trimmed = url.trim();
+  const scpLike = trimmed.match(/^[^@\s]+@[^:/\s]+:([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (scpLike) return { owner: scpLike[1], repo: scpLike[2] };
+  const urlLike = trimmed.match(/^\w+:\/\/[^/\s]+\/([^/\s]+)\/(.+?)(\.git)?\/?$/);
+  if (urlLike) return { owner: urlLike[1], repo: urlLike[2] };
+  return null;
 }
 async function getRemoteOwnerRepo(repoRoot, remoteName = "origin") {
   try {
