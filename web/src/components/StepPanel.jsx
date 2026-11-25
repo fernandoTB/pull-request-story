@@ -1,6 +1,5 @@
 import React from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import Markdown from "./Markdown.jsx";
 import DiffBlock from "./DiffBlock.jsx";
 
 export default function StepPanel({
@@ -45,13 +44,13 @@ export default function StepPanel({
       </div>
 
       <div className="step-description">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.description}</ReactMarkdown>
+        <Markdown>{step.description}</Markdown>
       </div>
 
       {step.story.map((item, i) =>
         item.type === "text" ? (
           <div className="story-item story-text" key={i}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+            <Markdown>{item.content}</Markdown>
           </div>
         ) : (
           <div className="story-item" key={i}>
