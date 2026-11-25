@@ -685,3 +685,16 @@ button.reviewed-toggle.active {
   height: 60vh;
   color: var(--text-muted);
 }
+
+/* Mermaid diagrams rendered from ```mermaid blocks in story text. */
+.mermaid-diagram {
+  margin: 12px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-diagram svg {
+  height: auto;
+}
+.mermaid-error {
+  margin: 12px 0;
+}
