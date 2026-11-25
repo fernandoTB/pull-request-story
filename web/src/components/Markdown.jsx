@@ -33,6 +33,8 @@ function MermaidDiagram({ source }) {
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
+          // Natural size + horizontal scroll, so wide left-to-right diagrams stay legible.
+          flowchart: { useMaxWidth: false, nodeSpacing: 25, rankSpacing: 35, padding: 8 },
           theme: prefersDark() ? "dark" : "default",
         });
         const { svg } = await mermaid.render(id, source);

@@ -693,7 +693,6 @@ button.reviewed-toggle.active {
   text-align: center;
 }
 .mermaid-diagram svg {
-  max-width: 100%;
   height: auto;
 }
 .mermaid-error {
